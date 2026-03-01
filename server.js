@@ -18,8 +18,8 @@ app.get('/', (req, res) => {
 
 app.get('/petugas', async (req, res) => {
   const result = await pool.query(
-    'select id, nama from petugas where aktif=true order by nama'
-  )
+  "SELECT id, nama FROM petugas WHERE aktif = true ORDER BY id"
+);
   res.json(result.rows)
 })
 
