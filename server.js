@@ -53,7 +53,46 @@ app.post('/absen', async (req, res) => {
 
   res.json({ success: true })
 })
+// ==================== ABSENSI ====================
 
+// GET semua absensi
+app.get("/absensi", async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT a.id, p.nama, a.tanggal, a.jam, a.status
+      FROM absensi a
+      JOIN petugas p ON a.petugas_id = p.id
+      ORDER BY a.tanggal DESC, a.jam DESC
+    `);
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Gagal mengambil data absensi" });
+  }
+});
+
+// POST tambah absensi
+app.post("/absensi", async (req, res) => {
+  const { petugas_id, tanggal, jam, status } = req.body;
+
+  try {
+    const result = await pool.query(
+      `INSERT INTO absensi (petugas_id, tanggal, jam, status)
+       VALUES ($1, $2, $3, $4)
+       RETURNING *`,
+      [petugas_id, tanggal, jam, status]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Gagal menambah absensi" });
+  }
+});
+
+app.listen(process.env.PORT || 3000, () => {
+  console.log("Server running")
+})
 app.listen(process.env.PORT || 3000, () => {
   console.log("Server running")
 })
