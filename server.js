@@ -17,6 +17,25 @@ app.get('/', (req, res) => {
 })
 
 app.get('/petugas', async (req, res) => {
+  app.post('/petugas', async (req, res) => {
+  const { nama, no_hp } = req.body;
+
+  if (!nama) {
+    return res.status(400).json({ error: 'Nama wajib diisi' });
+  }
+
+  try {
+    const result = await pool.query(
+      'INSERT INTO petugas (nama, no_hp) VALUES ($1, $2) RETURNING *',
+      [nama, no_hp]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Gagal menambahkan petugas' });
+  }
+});
   const result = await pool.query(
   "SELECT id, nama FROM petugas WHERE aktif = true ORDER BY id"
 );
