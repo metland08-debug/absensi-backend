@@ -69,18 +69,35 @@ app.get("/absensi", async (req, res) => {
   }
 })
 
-// POST tambah absensi
+// POST tambah absensi (anti double)
 app.post("/absensi", async (req, res) => {
   const { petugas_id, tanggal, jam, status } = req.body
 
   try {
+    // Cek apakah sudah ada absensi dengan status yang sama di tanggal yang sama
+    const cek = await pool.query(
+      `SELECT id FROM absensi
+       WHERE petugas_id = $1
+       AND tanggal = $2
+       AND status = $3`,
+      [petugas_id, tanggal, status]
+    )
+
+    if (cek.rows.length > 0) {
+      return res.status(400).json({
+        error: `Sudah melakukan ${status} pada tanggal ini`
+      })
+    }
+
     const result = await pool.query(
       `INSERT INTO absensi (petugas_id, tanggal, jam, status)
        VALUES ($1, $2, $3, $4)
        RETURNING *`,
       [petugas_id, tanggal, jam, status]
     )
+
     res.status(201).json(result.rows[0])
+
   } catch (err) {
     console.error(err)
     res.status(500).json({ error: "Gagal menambah absensi" })
