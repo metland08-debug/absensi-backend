@@ -120,7 +120,119 @@ function isBackupAllowed(is_backup, siklus_offset){
   const petugasIndex=(globalIndex+(siklus_offset??0))%5
   return petugasIndex!==4
 }
+/* ================= REKAP BULANAN ================= */
 
+app.get("/rekap-bulanan", async (req, res) => {
+  const { bulan, tahun } = req.query;
+
+  if (!bulan || !tahun) {
+    return res.status(400).json({ error: "Parameter bulan dan tahun wajib diisi" });
+  }
+
+  const bulanInt = parseInt(bulan);
+  const tahunInt = parseInt(tahun);
+
+  try {
+
+    const petugasResult = await pool.query(
+      "SELECT id, nama, siklus_offset, is_backup FROM petugas WHERE aktif = true ORDER BY id"
+    );
+    const petugasList = petugasResult.rows;
+
+    const absensiResult = await pool.query(
+      `SELECT petugas_id, tanggal, status 
+       FROM absensi
+       WHERE EXTRACT(MONTH FROM tanggal) = $1
+       AND EXTRACT(YEAR FROM tanggal) = $2`,
+      [bulanInt, tahunInt]
+    );
+
+    const absensiList = absensiResult.rows;
+
+    const hasil = [];
+
+    for (const p of petugasList) {
+
+      let masuk = 0;
+      let ijin = 0;
+      let sakit = 0;
+      let alpha = 0;
+      let backup = 0;
+
+      let tanggal_alpha = [];
+      let tanggal_ijin = [];
+      let tanggal_sakit = [];
+      let tanggal_backup = [];
+
+      const daysInMonth = new Date(tahunInt, bulanInt, 0).getDate();
+
+      for (let day = 1; day <= daysInMonth; day++) {
+
+        const tanggalObj = new Date(Date.UTC(tahunInt, bulanInt - 1, day));
+        const tanggalStr = tanggalObj.toISOString().split("T")[0];
+
+        // Hitung siklus
+        const startDate = new Date("2026-01-26T00:00:00+07:00");
+        const diffDays = Math.floor(
+          (tanggalObj - startDate) / (1000 * 60 * 60 * 24)
+        );
+        const globalIndex = ((diffDays % 5) + 5) % 5;
+        const petugasIndex = (globalIndex + (p.siklus_offset ?? 0)) % 5;
+
+        const isLibur = petugasIndex === 4;
+
+        const absensiHari = absensiList.filter(a =>
+          a.petugas_id === p.id &&
+          a.tanggal.toISOString().split("T")[0] === tanggalStr
+        );
+
+        const adaMasuk = absensiHari.some(a => a.status === "MASUK");
+        const adaIjin = absensiHari.some(a => a.status === "IJIN");
+        const adaSakit = absensiHari.some(a => a.status === "SAKIT");
+
+        if (isLibur) {
+          if (adaMasuk) {
+            backup++;
+            tanggal_backup.push(tanggalStr);
+          }
+          continue;
+        }
+
+        if (adaMasuk) {
+          masuk++;
+        } else if (adaIjin) {
+          ijin++;
+          tanggal_ijin.push(tanggalStr);
+        } else if (adaSakit) {
+          sakit++;
+          tanggal_sakit.push(tanggalStr);
+        } else {
+          alpha++;
+          tanggal_alpha.push(tanggalStr);
+        }
+      }
+
+      hasil.push({
+        nama: p.nama,
+        masuk,
+        ijin,
+        sakit,
+        alpha,
+        backup,
+        tanggal_alpha,
+        tanggal_ijin,
+        tanggal_sakit,
+        tanggal_backup
+      });
+    }
+
+    res.json(hasil);
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Gagal membuat rekap bulanan" });
+  }
+});
 app.listen(process.env.PORT || 3000, () => {
   console.log("Server running")
 })
