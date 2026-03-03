@@ -144,6 +144,7 @@ app.get('/', (req, res) => {
 app.get('/petugas', async (req, res) => {
   try {
     const result = await pool.query(
+<<<<<<< HEAD
       `SELECT id, nama, siklus_offset, is_backup
        FROM petugas WHERE aktif = true ORDER BY id`
     )
@@ -281,6 +282,31 @@ app.post("/absensi", upload.single("foto"), async (req, res) => {
   } catch (err) {
     console.error(err)
     res.status(500).json({ error: "Gagal absensi" })
+=======
+      'select id, nama from petugas where aktif=true order by nama'
+    )
+    res.json(result.rows)
+  } catch (err) {
+    console.error("ERROR /petugas:", err)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+app.post('/absen', async (req, res) => {
+  try {
+    const { petugas_id, status } = req.body
+
+    await pool.query(
+      `insert into absensi (petugas_id, status)
+       values ($1,$2)`,
+      [petugas_id, status]
+    )
+
+    res.json({ success: true })
+  } catch (err) {
+    console.error("ERROR /absen:", err)
+    res.status(500).json({ error: err.message })
+>>>>>>> 67f7a0f (add multer and update server)
   }
 })
 

@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Absensi Linmas</title>
+
+<style>
+body {
+  font-family: Arial, sans-serif;
+  background: #f4f6f9;
+  display: flex;
+  justify-content: center;
+  padding: 20px;
+}
+
+.card {
+  background: white;
+  padding: 25px;
+  width: 100%;
+  max-width: 400px;
+  border-radius: 12px;
+  box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+}
+
+select, button {
+  width: 100%;
+  padding: 10px;
+  margin-top: 10px;
+  font-size: 16px;
+}
+</style>
+</head>
+
+<body>
+
+<div class="card">
+  <h2>Absensi Linmas</h2>
+
+  <label>Nama Petugas</label>
+  <select id="nama">
+    <option value="">Memuat data...</option>
+  </select>
+
+  <label>Status</label>
+  <select id="status">
+    <option value="Datang">Datang</option>
+    <option value="Pulang">Pulang</option>
+  </select>
+
+  <button onclick="submitAbsen()">Submit</button>
+
+  <div id="message"></div>
+</div>
+
+<script>
+const BASE_URL = "https://absensi-backend-sc11.onrender.com";
+
+async function loadPetugas() {
+  try {
+    const res = await fetch(BASE_URL + "/petugas");
+    const data = await res.json();
+
+    const select = document.getElementById("nama");
+    select.innerHTML = '<option value="">-- Pilih Nama --</option>';
+
+    data.forEach(function(p) {
+      const option = document.createElement("option");
+      option.value = p.id;
+      option.textContent = p.nama;
+      select.appendChild(option);
+    });
+
+  } catch (err) {
+    document.getElementById("message").innerText =
+      "Gagal memuat data petugas";
+  }
+}
+
+async function submitAbsen() {
+  const petugas_id = document.getElementById("nama").value;
+  const status = document.getElementById("status").value;
+
+  if (!petugas_id) {
+    document.getElementById("message").innerText =
+      "Pilih nama dulu";
+    return;
+  }
+
+  try {
+    const res = await fetch(BASE_URL + "/absen", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ petugas_id: petugas_id, status: status })
+    });
+
+    if (res.ok) {
+      document.getElementById("message").innerText =
+        "Absen berhasil";
+    } else {
+      document.getElementById("message").innerText =
+        "Gagal absen";
+    }
+
+  } catch (err) {
+    document.getElementById("message").innerText =
+      "Server tidak bisa dihubungi";
+  }
+}
+
+loadPetugas();
+</script>
+
+</body>
+</html>
