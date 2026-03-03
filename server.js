@@ -6,8 +6,6 @@ const multer = require('multer')
 const path = require('path')
 const fs = require('fs')
 const { v4: uuidv4 } = require('uuid')
-const canvas = require('canvas')
-const faceapi = require('@vladmandic/face-api')
 
 const app = express()
 app.use(cors())
@@ -21,11 +19,11 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false }
 })
 
-/* ================= KONFIG ================= */
+/* ================= KONFIG POS ================= */
 
 const POS_LAT = -6.195772
 const POS_LNG = 106.709001
-const MAX_RADIUS = 50
+const MAX_RADIUS = 50 // meter
 
 /* ================= FOLDER FOTO ================= */
 
@@ -41,37 +39,12 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage })
 
-/* ================= FACE API ================= */
-
-faceapi.env.monkeyPatch({
-  Canvas: canvas.Canvas,
-  Image: canvas.Image,
-  ImageData: canvas.ImageData
-})
-
-async function loadModels() {
-  if (fs.existsSync('./models')) {
-    await faceapi.nets.ssdMobilenetv1.loadFromDisk('./models')
-  }
-}
-loadModels()
-
 /* ================= HELPER ================= */
 
 function getNowWIB() {
   return new Date(
     new Date().toLocaleString("en-US", { timeZone: "Asia/Jakarta" })
   )
-}
-
-function getSiklusIndex() {
-  const startDate = new Date("2026-01-26T00:00:00+07:00")
-  const now = getNowWIB()
-  const today = new Date(now)
-  today.setHours(0,0,0,0)
-
-  const diffDays = Math.floor((today - startDate) / 86400000)
-  return ((diffDays % 5) + 5) % 5
 }
 
 function getDistance(lat1, lon1, lat2, lon2) {
@@ -116,33 +89,10 @@ async function isLocationJumpSuspicious(petugas_id, lat, lng) {
   return distance > 2000
 }
 
-async function detectFace(imagePath) {
-  try {
-    const img = await canvas.loadImage(imagePath)
-    const detection = await faceapi.detectSingleFace(img)
-    return !!detection
-  } catch {
-    return false
-  }
-}
-
-async function addWatermark(imagePath, text) {
-  const img = await canvas.loadImage(imagePath)
-  const cnv = canvas.createCanvas(img.width, img.height)
-  const ctx = cnv.getContext('2d')
-
-  ctx.drawImage(img, 0, 0)
-  ctx.font = "28px Arial"
-  ctx.fillStyle = "red"
-  ctx.fillText(text, 20, img.height - 40)
-
-  fs.writeFileSync(imagePath, cnv.toBuffer("image/jpeg"))
-}
-
 /* ================= ROOT ================= */
 
 app.get('/', (req, res) => {
-  res.json({ status: "Absensi Backend Running Secure" })
+  res.json({ status: "Absensi Backend Running" })
 })
 
 /* ================= PETUGAS ================= */
@@ -150,8 +100,10 @@ app.get('/', (req, res) => {
 app.get('/petugas', async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT id, nama, siklus_offset, is_backup
-       FROM petugas WHERE aktif = true ORDER BY id`
+      `SELECT id, nama
+       FROM petugas
+       WHERE aktif = true
+       ORDER BY id`
     )
     res.json(result.rows)
   } catch (err) {
@@ -180,32 +132,11 @@ app.post("/absensi", upload.single("foto"), async (req, res) => {
 
   try {
 
-    const petugasData = await pool.query(
-      `SELECT siklus_offset, is_backup
-       FROM petugas WHERE id = $1`,
-      [petugas_id]
-    )
-
-    if (petugasData.rows.length === 0)
-      return res.status(404).json({ error: "Petugas tidak ditemukan" })
-
-    const { siklus_offset, is_backup } = petugasData.rows[0]
-
-    if (!is_backup) {
-      const globalIndex = getSiklusIndex()
-      const petugasIndex = (globalIndex + (siklus_offset ?? 0)) % 5
-      if (petugasIndex === 4)
-        return res.status(403).json({ error: "Anda LIBUR hari ini" })
-    }
-
     const now = getNowWIB()
-    if (now.getHours() < 8) {
-      now.setDate(now.getDate() - 1)
-    }
-
     const tanggal = now.toISOString().split("T")[0]
-    const jam = getNowWIB().toTimeString().split(" ")[0]
+    const jam = now.toTimeString().split(" ")[0]
 
+    /* ===== ANTI DOUBLE ===== */
     const cek = await pool.query(
       `SELECT id FROM absensi
        WHERE petugas_id = $1
@@ -216,6 +147,8 @@ app.post("/absensi", upload.single("foto"), async (req, res) => {
 
     if (cek.rows.length > 0)
       return res.status(400).json({ error: `Sudah ${status}` })
+
+    /* ===== VALIDASI GPS ===== */
 
     if (parseFloat(accuracy) > 30)
       return res.status(403).json({ error: "GPS tidak presisi" })
@@ -239,16 +172,7 @@ app.post("/absensi", upload.single("foto"), async (req, res) => {
       parseFloat(longitude)
     )
 
-    const faceDetected = await detectFace(req.file.path)
-    if (!faceDetected) {
-      fs.unlinkSync(req.file.path)
-      return res.status(403).json({ error: "Wajah tidak terdeteksi" })
-    }
-
-    const watermark =
-      `WIB ${tanggal} ${jam} | Lat:${latitude} Lng:${longitude}`
-
-    await addWatermark(req.file.path, watermark)
+    /* ===== INSERT ===== */
 
     const result = await pool.query(
       `INSERT INTO absensi
@@ -285,11 +209,11 @@ app.post("/absensi", upload.single("foto"), async (req, res) => {
 app.get("/admin/foto", async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT a.id, p.nama, a.tanggal, a.jam, a.status,
-             a.foto, a.latitude, a.longitude,
+      SELECT a.id, a.petugas_id, a.tanggal, a.jam,
+             a.status, a.foto,
+             a.latitude, a.longitude,
              a.suspicious
       FROM absensi a
-      JOIN petugas p ON a.petugas_id = p.id
       ORDER BY a.tanggal DESC, a.jam DESC
     `)
     res.json(result.rows)
@@ -302,5 +226,5 @@ app.get("/admin/foto", async (req, res) => {
 /* ================= START ================= */
 
 app.listen(process.env.PORT || 3000, () => {
-  console.log("Server running secure mode")
+  console.log("Server running")
 })

@@ -6,8 +6,6 @@
     "start": "node server.js"
   },
   "dependencies": {
-    "@vladmandic/face-api": "^1.7.15",
-    "canvas": "^3.2.1",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
