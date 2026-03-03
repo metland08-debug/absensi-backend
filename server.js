@@ -2,186 +2,187 @@ require('dotenv').config()
 const express = require('express')
 const cors = require('cors')
 const { Pool } = require('pg')
+const multer = require('multer')
+const path = require('path')
+const fs = require('fs')
+const { v4: uuidv4 } = require('uuid')
+const canvas = require('canvas')
+const faceapi = require('@vladmandic/face-api')
 
 const app = express()
 app.use(cors())
 app.use(express.json())
+app.use('/uploads', express.static('uploads'))
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false }
 })
 
-app.get('/', (req, res) => {
-  res.json({ status: "Absensi Backend Running" })
-})
+/* ================== KONFIG ================== */
 
-/* ================= SIKLUS 5 HARI ================= */
+const POS_LAT = -6.195772
+const POS_LNG = 106.709001
+const MAX_RADIUS = 50 // meter
 
-function getSiklusIndex() {
-  const startDate = new Date("2026-01-26")
-  const now = new Date()
-  const today = new Date(now)
-  today.setHours(0,0,0,0)
+/* ================== STORAGE FOTO ================== */
 
-  const diffDays = Math.floor((today - startDate) / (1000 * 60 * 60 * 24))
-  return ((diffDays % 5) + 5) % 5
+if (!fs.existsSync('uploads')) {
+  fs.mkdirSync('uploads')
 }
 
-/* ================= PETUGAS ================= */
-
-// ✅ GET semua petugas (SUDAH TERMASUK BACKUP)
-app.get('/petugas', async (req, res) => {
-  try {
-    const result = await pool.query(
-      "SELECT id, nama, siklus_offset, is_backup FROM petugas WHERE aktif = true ORDER BY id"
-    )
-    res.json(result.rows)
-  } catch (err) {
-    console.error(err)
-    res.status(500).json({ error: "Gagal mengambil petugas" })
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, 'uploads/')
+  },
+  filename: function (req, file, cb) {
+    cb(null, uuidv4() + path.extname(file.originalname))
   }
 })
 
-// POST tambah petugas
-app.post('/petugas', async (req, res) => {
-  const { nama, no_hp } = req.body
+const upload = multer({ storage })
 
-  if (!nama) {
-    return res.status(400).json({ error: 'Nama wajib diisi' })
-  }
+/* ================== FACE API SETUP ================== */
 
-  try {
-    const result = await pool.query(
-      'INSERT INTO petugas (nama, no_hp) VALUES ($1, $2) RETURNING *',
-      [nama, no_hp]
-    )
-    res.status(201).json(result.rows[0])
-  } catch (err) {
-    console.error(err)
-    res.status(500).json({ error: 'Gagal menambahkan petugas' })
-  }
+faceapi.env.monkeyPatch({
+  Canvas: canvas.Canvas,
+  Image: canvas.Image,
+  ImageData: canvas.ImageData
 })
 
-/* ================= ADMIN LOGIN ================= */
+async function loadModels() {
+  await faceapi.nets.ssdMobilenetv1.loadFromDisk('./models')
+}
+loadModels()
 
-app.post("/login", async (req, res) => {
-  const { username, password } = req.body;
+/* ================== HELPER ================== */
 
-  try {
-    const result = await pool.query(
-      "SELECT * FROM admin WHERE username = $1 AND password = $2",
-      [username, password]
-    );
+function getNowWIB() {
+  return new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Jakarta" }))
+}
 
-    if (result.rows.length === 0) {
-      return res.status(401).json({ error: "Login gagal" });
-    }
+function getDistance(lat1, lon1, lat2, lon2) {
+  const R = 6371e3
+  const φ1 = lat1 * Math.PI/180
+  const φ2 = lat2 * Math.PI/180
+  const Δφ = (lat2-lat1) * Math.PI/180
+  const Δλ = (lon2-lon1) * Math.PI/180
 
-    res.json({ success: true });
+  const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+            Math.cos(φ1) * Math.cos(φ2) *
+            Math.sin(Δλ/2) * Math.sin(Δλ/2)
 
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Server error" });
-  }
-});
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
+  return R * c
+}
 
-/* ================= ABSENSI ================= */
+async function detectFace(imagePath) {
+  const img = await canvas.loadImage(imagePath)
+  const detection = await faceapi.detectSingleFace(img)
+  return !!detection
+}
 
-// GET semua absensi
-app.get("/absensi", async (req, res) => {
-  try {
-    const result = await pool.query(`
-      SELECT a.id, p.nama, a.tanggal, a.jam, a.status
-      FROM absensi a
-      JOIN petugas p ON a.petugas_id = p.id
-      ORDER BY a.tanggal DESC, a.jam DESC
-    `)
-    res.json(result.rows)
-  } catch (err) {
-    console.error(err)
-    res.status(500).json({ error: "Gagal mengambil data absensi" })
-  }
-})
+async function addWatermark(imagePath, text) {
+  const img = await canvas.loadImage(imagePath)
+  const cnv = canvas.createCanvas(img.width, img.height)
+  const ctx = cnv.getContext('2d')
 
-// POST tambah absensi
-app.post("/absensi", async (req, res) => {
-  const { petugas_id, status } = req.body
+  ctx.drawImage(img, 0, 0)
+  ctx.font = "30px Arial"
+  ctx.fillStyle = "red"
+  ctx.fillText(text, 20, img.height - 40)
 
-  if (!petugas_id || !status) {
+  const buffer = cnv.toBuffer("image/jpeg")
+  fs.writeFileSync(imagePath, buffer)
+}
+
+/* ================== ABSENSI ================== */
+
+app.post("/absensi", upload.single("foto"), async (req, res) => {
+
+  const { petugas_id, status, latitude, longitude } = req.body
+
+  if (!petugas_id || !status || !latitude || !longitude || !req.file) {
     return res.status(400).json({ error: "Data tidak lengkap" })
   }
 
   try {
 
-    // 🔵 Ambil data petugas
-    const petugasData = await pool.query(
-      `SELECT siklus_offset, is_backup FROM petugas WHERE id = $1`,
-      [petugas_id]
+    /* ===== VALIDASI LOKASI ===== */
+    const distance = getDistance(
+      parseFloat(latitude),
+      parseFloat(longitude),
+      POS_LAT,
+      POS_LNG
     )
 
-    if (petugasData.rows.length === 0) {
-      return res.status(404).json({ error: "Petugas tidak ditemukan" })
+    if (distance > MAX_RADIUS) {
+      fs.unlinkSync(req.file.path)
+      return res.status(403).json({ error: "Di luar radius 50m" })
     }
 
-    const { siklus_offset, is_backup } = petugasData.rows[0]
+    /* ===== FACE DETECTION ===== */
+    const faceDetected = await detectFace(req.file.path)
 
-    // 🔵 Jika BUKAN backup → cek siklus
-    if (!is_backup) {
-      const globalIndex = getSiklusIndex()
-      const petugasIndex = (globalIndex + (siklus_offset ?? 0)) % 5
-
-      if (petugasIndex === 4) {
-        return res.status(403).json({
-          error: "Anda LIBUR hari ini. Tidak bisa melakukan absensi."
-        })
-      }
+    if (!faceDetected) {
+      fs.unlinkSync(req.file.path)
+      return res.status(403).json({ error: "Wajah tidak terdeteksi" })
     }
 
-    /* ===== CUT OFF 08:00 ===== */
-    const now = new Date()
-    const jamSekarang = now.getHours() + now.getMinutes() / 60
-
-    let tanggalFinal = new Date(now)
-
-    if (jamSekarang < 8) {
-      tanggalFinal.setDate(tanggalFinal.getDate() - 1)
-    }
-
-    const tanggal = tanggalFinal.toISOString().split("T")[0]
+    /* ===== WATERMARK ===== */
+    const now = getNowWIB()
+    const tanggal = now.toISOString().split("T")[0]
     const jam = now.toTimeString().split(" ")[0]
 
-    /* ===== CEK ANTI DOUBLE ===== */
-    const cek = await pool.query(
-      `SELECT id FROM absensi
-       WHERE petugas_id = $1
-       AND tanggal = $2
-       AND status = $3`,
-      [petugas_id, tanggal, status]
-    )
+    const watermarkText =
+      `Waktu: ${tanggal} ${jam} | Lat: ${latitude}, Lng: ${longitude}`
 
-    if (cek.rows.length > 0) {
-      return res.status(400).json({
-        error: `Sudah melakukan ${status} pada tanggal ini`
-      })
-    }
+    await addWatermark(req.file.path, watermarkText)
 
-    /* ===== INSERT ===== */
+    /* ===== SIMPAN DB ===== */
     const result = await pool.query(
-      `INSERT INTO absensi (petugas_id, tanggal, jam, status)
-       VALUES ($1, $2, $3, $4)
+      `INSERT INTO absensi 
+       (petugas_id, tanggal, jam, status, foto, latitude, longitude)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
        RETURNING *`,
-      [petugas_id, tanggal, jam, status]
+      [
+        petugas_id,
+        tanggal,
+        jam,
+        status,
+        req.file.filename,
+        latitude,
+        longitude
+      ]
     )
 
     res.status(201).json(result.rows[0])
 
   } catch (err) {
     console.error(err)
-    res.status(500).json({ error: "Gagal menambah absensi" })
+    res.status(500).json({ error: "Gagal absensi" })
+  }
+})
+
+/* ================== DASHBOARD FOTO ================== */
+
+app.get("/admin/foto", async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT a.id, p.nama, a.tanggal, a.jam, a.status,
+             a.foto, a.latitude, a.longitude
+      FROM absensi a
+      JOIN petugas p ON a.petugas_id = p.id
+      ORDER BY a.tanggal DESC, a.jam DESC
+    `)
+
+    res.json(result.rows)
+
+  } catch (err) {
+    res.status(500).json({ error: "Gagal mengambil foto absensi" })
   }
 })
 
 app.listen(process.env.PORT || 3000, () => {
-  console.log("Server running")
+  console.log("Server running secure mode")
 })
