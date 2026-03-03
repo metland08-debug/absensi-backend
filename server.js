@@ -16,14 +16,18 @@ app.get('/', (req, res) => {
   res.json({ status: "Absensi Backend Running" })
 })
 
-function getSiklusIndex() {
-  const startDate = new Date("2026-01-26T00:00:00+07:00")
-  const today = new Date()
-  today.setHours(0,0,0,0)
+/* ================= SIKLUS GLOBAL ================= */
 
-  const diffDays = Math.floor((today - startDate) / (1000*60*60*24))
+function getSiklusIndexByDate(dateObj) {
+  const startDate = new Date("2026-01-26T00:00:00+07:00")
+  const d = new Date(dateObj)
+  d.setHours(0,0,0,0)
+
+  const diffDays = Math.floor((d - startDate) / (1000*60*60*24))
   return ((diffDays % 5) + 5) % 5
 }
+
+/* ================= PETUGAS ================= */
 
 app.get('/petugas', async (req, res) => {
   try {
@@ -35,6 +39,8 @@ app.get('/petugas', async (req, res) => {
     res.status(500).json({ error: "Gagal mengambil petugas" })
   }
 })
+
+/* ================= ABSENSI ================= */
 
 app.get("/absensi", async (req, res) => {
   try {
@@ -69,18 +75,21 @@ app.post("/absensi", async (req, res) => {
 
     const { siklus_offset, is_backup } = petugasData.rows[0]
 
-    if (!isBackupAllowed(is_backup, siklus_offset)) {
-      return res.status(403).json({
-        error: "Anda LIBUR hari ini. Tidak bisa melakukan absensi."
-      })
-    }
-
     const now = new Date()
     const jamSekarang = now.getHours() + now.getMinutes() / 60
 
     let tanggalFinal = new Date(now)
     if (jamSekarang < 8) {
       tanggalFinal.setDate(tanggalFinal.getDate() - 1)
+    }
+
+    const globalIndex = getSiklusIndexByDate(tanggalFinal)
+    const petugasIndex = (globalIndex + (siklus_offset ?? 0)) % 5
+
+    if (!is_backup && petugasIndex === 4 && status !== "MASUK") {
+      return res.status(403).json({
+        error: "Anda LIBUR hari ini. Tidak bisa melakukan absensi."
+      })
     }
 
     const tanggal = tanggalFinal.toISOString().split("T")[0]
@@ -109,111 +118,120 @@ app.post("/absensi", async (req, res) => {
 
     res.status(201).json(result.rows[0])
 
-  } catch {
+  } catch (err) {
+    console.error(err)
     res.status(500).json({ error: "Gagal menambah absensi" })
   }
 })
 
-function isBackupAllowed(is_backup, siklus_offset){
-  if(is_backup) return true
-  const globalIndex=getSiklusIndex()
-  const petugasIndex=(globalIndex+(siklus_offset??0))%5
-  return petugasIndex!==4
-}
-/* ================= REKAP BULANAN ================= */
+/* ================= REKAP BULANAN 26–25 ================= */
 
 app.get("/rekap-bulanan", async (req, res) => {
-  const { bulan, tahun } = req.query;
+  const { bulan, tahun } = req.query
 
   if (!bulan || !tahun) {
-    return res.status(400).json({ error: "Parameter bulan dan tahun wajib diisi" });
+    return res.status(400).json({ error: "Parameter bulan dan tahun wajib diisi" })
   }
 
-  const bulanInt = parseInt(bulan);
-  const tahunInt = parseInt(tahun);
+  const bulanInt = parseInt(bulan)
+  const tahunInt = parseInt(tahun)
 
   try {
 
+    /* ===== Hitung Periode 26–25 ===== */
+
+    let startMonth = bulanInt - 1
+    let startYear = tahunInt
+
+    if (startMonth === 0) {
+      startMonth = 12
+      startYear -= 1
+    }
+
+    const startDate = new Date(Date.UTC(startYear, startMonth - 1, 26))
+    const endDate   = new Date(Date.UTC(tahunInt, bulanInt - 1, 25))
+
+    const startStr = startDate.toISOString().split("T")[0]
+    const endStr   = endDate.toISOString().split("T")[0]
+
     const petugasResult = await pool.query(
       "SELECT id, nama, siklus_offset, is_backup FROM petugas WHERE aktif = true ORDER BY id"
-    );
-    const petugasList = petugasResult.rows;
+    )
+    const petugasList = petugasResult.rows
 
     const absensiResult = await pool.query(
-      `SELECT petugas_id, tanggal, status 
+      `SELECT petugas_id, tanggal, status
        FROM absensi
-       WHERE EXTRACT(MONTH FROM tanggal) = $1
-       AND EXTRACT(YEAR FROM tanggal) = $2`,
-      [bulanInt, tahunInt]
-    );
+       WHERE tanggal >= $1 AND tanggal <= $2`,
+      [startStr, endStr]
+    )
 
-    const absensiList = absensiResult.rows;
+    const absensiList = absensiResult.rows
 
-    const hasil = [];
+    const hasil = []
 
     for (const p of petugasList) {
 
-      let masuk = 0;
-      let ijin = 0;
-      let sakit = 0;
-      let alpha = 0;
-      let backup = 0;
+      let masuk = 0
+      let ijin = 0
+      let sakit = 0
+      let alpha = 0
+      let backup = 0
+      let hari_kerja = 0
 
-      let tanggal_alpha = [];
-      let tanggal_ijin = [];
-      let tanggal_sakit = [];
-      let tanggal_backup = [];
+      let tanggal_alpha = []
+      let tanggal_ijin = []
+      let tanggal_sakit = []
+      let tanggal_backup = []
 
-      const daysInMonth = new Date(tahunInt, bulanInt, 0).getDate();
+      for (
+        let d = new Date(startDate);
+        d <= endDate;
+        d.setDate(d.getDate() + 1)
+      ) {
 
-      for (let day = 1; day <= daysInMonth; day++) {
+        const tanggalStr = d.toISOString().split("T")[0]
 
-        const tanggalObj = new Date(Date.UTC(tahunInt, bulanInt - 1, day));
-        const tanggalStr = tanggalObj.toISOString().split("T")[0];
-
-        // Hitung siklus
-        const startDate = new Date("2026-01-26T00:00:00+07:00");
-        const diffDays = Math.floor(
-          (tanggalObj - startDate) / (1000 * 60 * 60 * 24)
-        );
-        const globalIndex = ((diffDays % 5) + 5) % 5;
-        const petugasIndex = (globalIndex + (p.siklus_offset ?? 0)) % 5;
-
-        const isLibur = petugasIndex === 4;
+        const globalIndex = getSiklusIndexByDate(d)
+        const petugasIndex = (globalIndex + (p.siklus_offset ?? 0)) % 5
+        const isLibur = petugasIndex === 4
 
         const absensiHari = absensiList.filter(a =>
           a.petugas_id === p.id &&
           a.tanggal.toISOString().split("T")[0] === tanggalStr
-        );
+        )
 
-        const adaMasuk = absensiHari.some(a => a.status === "MASUK");
-        const adaIjin = absensiHari.some(a => a.status === "IJIN");
-        const adaSakit = absensiHari.some(a => a.status === "SAKIT");
+        const adaMasuk = absensiHari.some(a => a.status === "MASUK")
+        const adaIjin  = absensiHari.some(a => a.status === "IJIN")
+        const adaSakit = absensiHari.some(a => a.status === "SAKIT")
 
         if (isLibur) {
           if (adaMasuk) {
-            backup++;
-            tanggal_backup.push(tanggalStr);
+            backup++
+            tanggal_backup.push(tanggalStr)
           }
-          continue;
+          continue
         }
 
+        hari_kerja++
+
         if (adaMasuk) {
-          masuk++;
+          masuk++
         } else if (adaIjin) {
-          ijin++;
-          tanggal_ijin.push(tanggalStr);
+          ijin++
+          tanggal_ijin.push(tanggalStr)
         } else if (adaSakit) {
-          sakit++;
-          tanggal_sakit.push(tanggalStr);
+          sakit++
+          tanggal_sakit.push(tanggalStr)
         } else {
-          alpha++;
-          tanggal_alpha.push(tanggalStr);
+          alpha++
+          tanggal_alpha.push(tanggalStr)
         }
       }
 
       hasil.push({
         nama: p.nama,
+        hari_kerja,
         masuk,
         ijin,
         sakit,
@@ -223,16 +241,20 @@ app.get("/rekap-bulanan", async (req, res) => {
         tanggal_ijin,
         tanggal_sakit,
         tanggal_backup
-      });
+      })
     }
 
-    res.json(hasil);
+    res.json({
+      periode: `${startStr} s/d ${endStr}`,
+      data: hasil
+    })
 
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Gagal membuat rekap bulanan" });
+    console.error(err)
+    res.status(500).json({ error: "Gagal membuat rekap bulanan" })
   }
-});
+})
+
 app.listen(process.env.PORT || 3000, () => {
   console.log("Server running")
 })
