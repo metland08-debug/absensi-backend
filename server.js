@@ -17,7 +17,7 @@ app.get('/', (req, res) => {
 })
 
 function getSiklusIndex() {
-  const startDate = new Date("2026-01-26")
+  const startDate = new Date("2026-01-26T00:00:00+07:00")
   const today = new Date()
   today.setHours(0,0,0,0)
 
