@@ -65,6 +65,28 @@ app.post('/petugas', async (req, res) => {
     res.status(500).json({ error: 'Gagal menambahkan petugas' })
   }
 })
+/* ================= ADMIN LOGIN ================= */
+
+app.post("/login", async (req, res) => {
+  const { username, password } = req.body;
+
+  try {
+    const result = await pool.query(
+      "SELECT * FROM admin WHERE username = $1 AND password = $2",
+      [username, password]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(401).json({ error: "Login gagal" });
+    }
+
+    res.json({ success: true });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
 
 /* ================= ABSENSI ================= */
 
