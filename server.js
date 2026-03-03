@@ -37,7 +37,7 @@ function getSiklusIndex() {
 app.get('/petugas', async (req, res) => {
   try {
     const result = await pool.query(
-      "SELECT id, nama FROM petugas WHERE aktif = true ORDER BY id"
+      "SELECT id, nama, siklus_offset FROM petugas WHERE aktif = true ORDER BY id"
     )
     res.json(result.rows)
   } catch (err) {
