@@ -120,10 +120,9 @@ app.post("/absensi", async (req, res) => {
   try {
 
 
-    /* ===== BLOK LIBUR ===== */
-    // Ambil offset petugas
+ // Ambil data petugas
 const petugasData = await pool.query(
-  `SELECT siklus_offset FROM petugas WHERE id = $1`,
+  `SELECT siklus_offset, is_backup FROM petugas WHERE id = $1`,
   [petugas_id]
 )
 
@@ -131,16 +130,18 @@ if (petugasData.rows.length === 0) {
   return res.status(404).json({ error: "Petugas tidak ditemukan" })
 }
 
-const offset = petugasData.rows[0].siklus_offset || 0
+const { siklus_offset, is_backup } = petugasData.rows[0]
 
-const globalIndex = getSiklusIndex()
-const petugasIndex = (globalIndex + offset) % 5
+// Jika backup → lewati cek siklus
+if (!is_backup) {
+  const globalIndex = getSiklusIndex()
+  const petugasIndex = (globalIndex + siklus_offset) % 5
 
-// Jika petugas LIBUR (index 4)
-if (petugasIndex === 4) {
-  return res.status(403).json({
-    error: "Anda LIBUR hari ini. Tidak bisa melakukan absensi."
-  })
+  if (petugasIndex === 4) {
+    return res.status(403).json({
+      error: "Anda LIBUR hari ini. Tidak bisa melakukan absensi."
+    })
+  }
 }
 
     /* ===== CUT OFF 08:00 ===== */
