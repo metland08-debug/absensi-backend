@@ -50,7 +50,9 @@ faceapi.env.monkeyPatch({
 })
 
 async function loadModels() {
-  await faceapi.nets.ssdMobilenetv1.loadFromDisk('./models')
+  if (fs.existsSync('./models')) {
+    await faceapi.nets.ssdMobilenetv1.loadFromDisk('./models')
+  }
 }
 loadModels()
 
@@ -115,9 +117,13 @@ async function isLocationJumpSuspicious(petugas_id, lat, lng) {
 }
 
 async function detectFace(imagePath) {
-  const img = await canvas.loadImage(imagePath)
-  const detection = await faceapi.detectSingleFace(img)
-  return !!detection
+  try {
+    const img = await canvas.loadImage(imagePath)
+    const detection = await faceapi.detectSingleFace(img)
+    return !!detection
+  } catch {
+    return false
+  }
 }
 
 async function addWatermark(imagePath, text) {
@@ -144,12 +150,12 @@ app.get('/', (req, res) => {
 app.get('/petugas', async (req, res) => {
   try {
     const result = await pool.query(
-<<<<<<< HEAD
       `SELECT id, nama, siklus_offset, is_backup
        FROM petugas WHERE aktif = true ORDER BY id`
     )
     res.json(result.rows)
-  } catch {
+  } catch (err) {
+    console.error(err)
     res.status(500).json({ error: "Gagal mengambil petugas" })
   }
 })
@@ -185,7 +191,6 @@ app.post("/absensi", upload.single("foto"), async (req, res) => {
 
     const { siklus_offset, is_backup } = petugasData.rows[0]
 
-    /* ===== SIKLUS ===== */
     if (!is_backup) {
       const globalIndex = getSiklusIndex()
       const petugasIndex = (globalIndex + (siklus_offset ?? 0)) % 5
@@ -193,7 +198,6 @@ app.post("/absensi", upload.single("foto"), async (req, res) => {
         return res.status(403).json({ error: "Anda LIBUR hari ini" })
     }
 
-    /* ===== CUT OFF 08:00 ===== */
     const now = getNowWIB()
     if (now.getHours() < 8) {
       now.setDate(now.getDate() - 1)
@@ -202,7 +206,6 @@ app.post("/absensi", upload.single("foto"), async (req, res) => {
     const tanggal = now.toISOString().split("T")[0]
     const jam = getNowWIB().toTimeString().split(" ")[0]
 
-    /* ===== ANTI DOUBLE ===== */
     const cek = await pool.query(
       `SELECT id FROM absensi
        WHERE petugas_id = $1
@@ -213,8 +216,6 @@ app.post("/absensi", upload.single("foto"), async (req, res) => {
 
     if (cek.rows.length > 0)
       return res.status(400).json({ error: `Sudah ${status}` })
-
-    /* ===== VALIDASI GPS ===== */
 
     if (parseFloat(accuracy) > 30)
       return res.status(403).json({ error: "GPS tidak presisi" })
@@ -238,22 +239,16 @@ app.post("/absensi", upload.single("foto"), async (req, res) => {
       parseFloat(longitude)
     )
 
-    /* ===== FACE DETECTION ===== */
-
     const faceDetected = await detectFace(req.file.path)
     if (!faceDetected) {
       fs.unlinkSync(req.file.path)
       return res.status(403).json({ error: "Wajah tidak terdeteksi" })
     }
 
-    /* ===== WATERMARK ===== */
-
     const watermark =
       `WIB ${tanggal} ${jam} | Lat:${latitude} Lng:${longitude}`
 
     await addWatermark(req.file.path, watermark)
-
-    /* ===== INSERT ===== */
 
     const result = await pool.query(
       `INSERT INTO absensi
@@ -282,31 +277,6 @@ app.post("/absensi", upload.single("foto"), async (req, res) => {
   } catch (err) {
     console.error(err)
     res.status(500).json({ error: "Gagal absensi" })
-=======
-      'select id, nama from petugas where aktif=true order by nama'
-    )
-    res.json(result.rows)
-  } catch (err) {
-    console.error("ERROR /petugas:", err)
-    res.status(500).json({ error: err.message })
-  }
-})
-
-app.post('/absen', async (req, res) => {
-  try {
-    const { petugas_id, status } = req.body
-
-    await pool.query(
-      `insert into absensi (petugas_id, status)
-       values ($1,$2)`,
-      [petugas_id, status]
-    )
-
-    res.json({ success: true })
-  } catch (err) {
-    console.error("ERROR /absen:", err)
-    res.status(500).json({ error: err.message })
->>>>>>> 67f7a0f (add multer and update server)
   }
 })
 
@@ -323,7 +293,8 @@ app.get("/admin/foto", async (req, res) => {
       ORDER BY a.tanggal DESC, a.jam DESC
     `)
     res.json(result.rows)
-  } catch {
+  } catch (err) {
+    console.error(err)
     res.status(500).json({ error: "Gagal mengambil data" })
   }
 })
