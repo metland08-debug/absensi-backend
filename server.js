@@ -88,7 +88,15 @@ app.get("/absensi", async (req, res) => {
 app.post("/absensi", async (req, res) => {
   const { petugas_id, status } = req.body
 
+  // ✅ VALIDASI DATA WAJIB
+  if (!petugas_id || !status) {
+    return res.status(400).json({
+      error: "Data tidak lengkap"
+    })
+  }
+
   try {
+
 
     /* ===== BLOK LIBUR ===== */
     // Ambil offset petugas
