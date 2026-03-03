@@ -86,17 +86,31 @@ app.get("/absensi", async (req, res) => {
 
 // POST tambah absensi (anti double + blok LIBUR)
 app.post("/absensi", async (req, res) => {
-  const { petugas_id, tanggal, jam, status } = req.body
+  const { petugas_id, status } = req.body
 
   try {
 
-    /* ===== BLOK JIKA LIBUR ===== */
+    /* ===== BLOK LIBUR ===== */
     const siklus = getSiklusIndex()
     if (siklus === 4) {
       return res.status(403).json({
         error: "Hari ini LIBUR. Tidak bisa melakukan absensi."
       })
     }
+
+    /* ===== CUT OFF 08:00 ===== */
+    const now = new Date()
+   const jamSekarang = now.getHours() + now.getMinutes() / 60
+
+    let tanggalFinal = new Date(now)
+
+    if (jamSekarang < 8) {
+      // sebelum jam 08:00 → dianggap hari sebelumnya
+      tanggalFinal.setDate(tanggalFinal.getDate() - 1)
+    }
+
+    const tanggal = tanggalFinal.toISOString().split("T")[0]
+    const jam = now.toTimeString().split(" ")[0]
 
     /* ===== CEK ANTI DOUBLE ===== */
     const cek = await pool.query(
@@ -113,7 +127,7 @@ app.post("/absensi", async (req, res) => {
       })
     }
 
-    /* ===== INSERT DATA ===== */
+    /* ===== INSERT ===== */
     const result = await pool.query(
       `INSERT INTO absensi (petugas_id, tanggal, jam, status)
        VALUES ($1, $2, $3, $4)
@@ -127,8 +141,4 @@ app.post("/absensi", async (req, res) => {
     console.error(err)
     res.status(500).json({ error: "Gagal menambah absensi" })
   }
-})
-
-app.listen(process.env.PORT || 3000, () => {
-  console.log("Server running")
 })
