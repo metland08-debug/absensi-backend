@@ -16,7 +16,22 @@ app.get('/', (req, res) => {
   res.json({ status: "Absensi Backend Running" })
 })
 
-// ================= PETUGAS =================
+/* ================= SIKLUS 5 HARI ================= */
+
+function getSiklusIndex() {
+  const startDate = new Date("2026-01-26")
+  const now = new Date()
+
+  const today = new Date(now)
+  today.setHours(0,0,0,0)
+
+  const diffTime = today.getTime() - startDate.getTime()
+  const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24))
+
+  return ((diffDays % 5) + 5) % 5
+}
+
+/* ================= PETUGAS ================= */
 
 // GET semua petugas
 app.get('/petugas', async (req, res) => {
@@ -51,7 +66,7 @@ app.post('/petugas', async (req, res) => {
   }
 })
 
-// ================= ABSENSI =================
+/* ================= ABSENSI ================= */
 
 // GET semua absensi
 app.get("/absensi", async (req, res) => {
@@ -69,12 +84,21 @@ app.get("/absensi", async (req, res) => {
   }
 })
 
-// POST tambah absensi (anti double)
+// POST tambah absensi (anti double + blok LIBUR)
 app.post("/absensi", async (req, res) => {
   const { petugas_id, tanggal, jam, status } = req.body
 
   try {
-    // Cek apakah sudah ada absensi dengan status yang sama di tanggal yang sama
+
+    /* ===== BLOK JIKA LIBUR ===== */
+    const siklus = getSiklusIndex()
+    if (siklus === 4) {
+      return res.status(403).json({
+        error: "Hari ini LIBUR. Tidak bisa melakukan absensi."
+      })
+    }
+
+    /* ===== CEK ANTI DOUBLE ===== */
     const cek = await pool.query(
       `SELECT id FROM absensi
        WHERE petugas_id = $1
@@ -89,6 +113,7 @@ app.post("/absensi", async (req, res) => {
       })
     }
 
+    /* ===== INSERT DATA ===== */
     const result = await pool.query(
       `INSERT INTO absensi (petugas_id, tanggal, jam, status)
        VALUES ($1, $2, $3, $4)
