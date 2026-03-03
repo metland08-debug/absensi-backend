@@ -21,23 +21,20 @@ app.get('/', (req, res) => {
 function getSiklusIndex() {
   const startDate = new Date("2026-01-26")
   const now = new Date()
-
   const today = new Date(now)
   today.setHours(0,0,0,0)
 
-  const diffTime = today.getTime() - startDate.getTime()
-  const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24))
-
+  const diffDays = Math.floor((today - startDate) / (1000 * 60 * 60 * 24))
   return ((diffDays % 5) + 5) % 5
 }
 
 /* ================= PETUGAS ================= */
 
-// GET semua petugas
+// ✅ GET semua petugas (SUDAH TERMASUK BACKUP)
 app.get('/petugas', async (req, res) => {
   try {
     const result = await pool.query(
-      "SELECT id, nama, siklus_offset FROM petugas WHERE aktif = true ORDER BY id"
+      "SELECT id, nama, siklus_offset, is_backup FROM petugas WHERE aktif = true ORDER BY id"
     )
     res.json(result.rows)
   } catch (err) {
@@ -65,6 +62,7 @@ app.post('/petugas', async (req, res) => {
     res.status(500).json({ error: 'Gagal menambahkan petugas' })
   }
 })
+
 /* ================= ADMIN LOGIN ================= */
 
 app.post("/login", async (req, res) => {
@@ -106,52 +104,47 @@ app.get("/absensi", async (req, res) => {
   }
 })
 
-// POST tambah absensi (anti double + blok LIBUR)
+// POST tambah absensi
 app.post("/absensi", async (req, res) => {
   const { petugas_id, status } = req.body
 
-  // ✅ VALIDASI DATA WAJIB
   if (!petugas_id || !status) {
-    return res.status(400).json({
-      error: "Data tidak lengkap"
-    })
+    return res.status(400).json({ error: "Data tidak lengkap" })
   }
 
   try {
 
+    // 🔵 Ambil data petugas
+    const petugasData = await pool.query(
+      `SELECT siklus_offset, is_backup FROM petugas WHERE id = $1`,
+      [petugas_id]
+    )
 
- // Ambil data petugas
-const petugasData = await pool.query(
-  `SELECT siklus_offset, is_backup FROM petugas WHERE id = $1`,
-  [petugas_id]
-)
+    if (petugasData.rows.length === 0) {
+      return res.status(404).json({ error: "Petugas tidak ditemukan" })
+    }
 
-if (petugasData.rows.length === 0) {
-  return res.status(404).json({ error: "Petugas tidak ditemukan" })
-}
+    const { siklus_offset, is_backup } = petugasData.rows[0]
 
-const { siklus_offset, is_backup } = petugasData.rows[0]
+    // 🔵 Jika BUKAN backup → cek siklus
+    if (!is_backup) {
+      const globalIndex = getSiklusIndex()
+      const petugasIndex = (globalIndex + (siklus_offset ?? 0)) % 5
 
-// Jika backup → lewati cek siklus
-if (!is_backup) {
-  const globalIndex = getSiklusIndex()
-  const petugasIndex = (globalIndex + siklus_offset) % 5
-
-  if (petugasIndex === 4) {
-    return res.status(403).json({
-      error: "Anda LIBUR hari ini. Tidak bisa melakukan absensi."
-    })
-  }
-}
+      if (petugasIndex === 4) {
+        return res.status(403).json({
+          error: "Anda LIBUR hari ini. Tidak bisa melakukan absensi."
+        })
+      }
+    }
 
     /* ===== CUT OFF 08:00 ===== */
     const now = new Date()
-   const jamSekarang = now.getHours() + now.getMinutes() / 60
+    const jamSekarang = now.getHours() + now.getMinutes() / 60
 
     let tanggalFinal = new Date(now)
 
     if (jamSekarang < 8) {
-      // sebelum jam 08:00 → dianggap hari sebelumnya
       tanggalFinal.setDate(tanggalFinal.getDate() - 1)
     }
 
@@ -187,4 +180,8 @@ if (!is_backup) {
     console.error(err)
     res.status(500).json({ error: "Gagal menambah absensi" })
   }
+})
+
+app.listen(process.env.PORT || 3000, () => {
+  console.log("Server running")
 })
