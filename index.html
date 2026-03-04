@@ -83,7 +83,7 @@ display:none;
 }
 
 #gps{
-margin-top:5px;
+margin-top:6px;
 font-size:13px;
 text-align:center;
 color:#555;
@@ -146,13 +146,11 @@ to{transform:scale(1);opacity:1}
 
 <label>Status</label>
 
-<select id="status" onchange="updateMode()">
-
+<select id="status" onchange="updateStatusInfo()">
 <option value="MASUK">Datang</option>
 <option value="PULANG">Pulang</option>
 <option value="IJIN">Ijin</option>
 <option value="SAKIT">Sakit</option>
-
 </select>
 
 <div id="gps">Menunggu GPS...</div>
@@ -163,11 +161,7 @@ to{transform:scale(1);opacity:1}
 
 <canvas id="canvas" style="display:none;"></canvas>
 
-<button onclick="submitAbsen()">
-
-Submit Absensi
-
-</button>
+<button onclick="submitAbsen()">Submit Absensi</button>
 
 <div id="message"></div>
 
@@ -177,7 +171,7 @@ Submit Absensi
 
 const BASE_URL="https://absensi-backend-sc11.onrender.com"
 
-/* KOORDINAT POS */
+/* POS JAGA */
 
 const POS_LAT=-6.266123
 const POS_LNG=106.652456
@@ -186,33 +180,9 @@ const MAX_RADIUS=100
 let stream=null
 let lokasi=null
 
-/* MODE UI */
-
-function updateMode(){
-
-const status=document.getElementById("status").value
-
-if(status==="IJIN" || status==="SAKIT"){
-
-stopCamera()
-
-document.getElementById("camera").style.display="none"
-
-}else{
-
-document.getElementById("camera").style.display="block"
-
-startCamera()
-
-}
-
-}
-
 /* CAMERA */
 
 async function startCamera(){
-
-if(stream) return
 
 try{
 
@@ -225,18 +195,6 @@ document.getElementById("camera").srcObject=stream
 }catch{
 
 document.getElementById("message").innerText="Kamera tidak tersedia"
-
-}
-
-}
-
-function stopCamera(){
-
-if(stream){
-
-stream.getTracks().forEach(track=>track.stop())
-
-stream=null
 
 }
 
@@ -295,6 +253,8 @@ pos=>{
 
 lokasi=pos.coords
 
+const status=document.getElementById("status").value
+
 const jarak=haversine(
 pos.coords.latitude,
 pos.coords.longitude,
@@ -302,8 +262,17 @@ POS_LAT,
 POS_LNG
 )
 
+if(status==="MASUK" || status==="PULANG"){
+
 document.getElementById("gps").innerText=
 "Jarak dari pos: "+Math.round(jarak)+" meter"
+
+}else{
+
+document.getElementById("gps").innerText=
+"Lokasi bebas (ijin/sakit)"
+
+}
 
 },
 
@@ -313,13 +282,17 @@ document.getElementById("gps").innerText="GPS tidak tersedia"
 
 },
 
-{enableHighAccuracy:true}
+{
+enableHighAccuracy:true,
+maximumAge:0,
+timeout:10000
+}
 
 )
 
 }
 
-/* HITUNG JARAK */
+/* JARAK */
 
 function haversine(lat1,lon1,lat2,lon2){
 
@@ -347,7 +320,6 @@ async function loadPetugas(){
 try{
 
 const res=await fetch(BASE_URL+"/petugas")
-
 const data=await res.json()
 
 const select=document.getElementById("nama")
@@ -391,18 +363,16 @@ async function syncOffline(){
 
 let list=JSON.parse(localStorage.getItem("absenOffline")||"[]")
 
-if(list.length===0)return
+if(list.length===0) return
 
 for(let data of list){
 
 try{
 
 await fetch(BASE_URL+"/absensi",{
-
 method:"POST",
 headers:{"Content-Type":"application/json"},
 body:JSON.stringify(data)
-
 })
 
 }catch{
@@ -414,6 +384,20 @@ return
 }
 
 localStorage.removeItem("absenOffline")
+
+}
+
+/* STATUS INFO */
+
+function updateStatusInfo(){
+
+const status=document.getElementById("status").value
+
+if(status==="IJIN" || status==="SAKIT"){
+
+document.getElementById("gps").innerText="Lokasi bebas (ijin/sakit)"
+
+}
 
 }
 
@@ -460,32 +444,22 @@ return
 
 }
 
-let foto=null
-
-if(status==="MASUK" || status==="PULANG"){
-
-foto=capturePhoto()
-
-}
+const foto=capturePhoto()
 
 const data={
-
 petugas_id,
 status,
 latitude:lokasi.latitude,
 longitude:lokasi.longitude,
 foto
-
 }
 
 try{
 
 const res=await fetch(BASE_URL+"/absensi",{
-
 method:"POST",
 headers:{"Content-Type":"application/json"},
 body:JSON.stringify(data)
-
 })
 
 if(res.ok){
@@ -511,8 +485,8 @@ document.getElementById("message").innerText="Offline. Data disimpan"
 /* INIT */
 
 loadPetugas()
+startCamera()
 startGPS()
-updateMode()
 
 window.addEventListener("online",syncOffline)
 
