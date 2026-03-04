@@ -256,14 +256,23 @@ function pilihStatus(status){
 
 statusDipilih=status
 
-document.getElementById("gps").innerText=""
 lokasi=null
 
-if(status==="MASUK"||status==="PULANG"){
-startGPS()
-}else{
+/* reset pesan GPS */
+document.getElementById("gps").innerText=""
+
+/* jika IZIN / SAKIT tidak perlu GPS */
+if(status==="IZIN" || status==="SAKIT"){
+
+setMessage("Silakan ambil foto sebagai bukti.","loading")
 startCamera()
+return
+
 }
+
+/* hanya MASUK / PULANG pakai GPS */
+
+startGPS()
 
 }
 
