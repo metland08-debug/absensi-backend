@@ -27,8 +27,6 @@ align-items:center;
 min-height:100vh;
 }
 
-/* CARD */
-
 .card{
 background:white;
 padding:25px;
@@ -70,14 +68,6 @@ button:hover{
 background:#16305c;
 }
 
-#message{
-margin-top:10px;
-text-align:center;
-font-weight:bold;
-}
-
-/* CAMERA */
-
 video{
 width:100%;
 margin-top:10px;
@@ -92,7 +82,18 @@ border-radius:8px;
 display:none;
 }
 
-/* SPLASH */
+#gps{
+margin-top:5px;
+font-size:13px;
+text-align:center;
+color:#555;
+}
+
+#message{
+margin-top:10px;
+text-align:center;
+font-weight:bold;
+}
 
 #splash{
 position:fixed;
@@ -120,20 +121,11 @@ from{transform:scale(0.3);opacity:0}
 to{transform:scale(1);opacity:1}
 }
 
-#gps{
-font-size:13px;
-margin-top:5px;
-color:#555;
-text-align:center;
-}
-
 </style>
 
 </head>
 
 <body>
-
-<!-- SPLASH -->
 
 <div id="splash">
 
@@ -141,7 +133,6 @@ text-align:center;
 <h2>Absensi Linmas</h2>
 
 </div>
-
 
 <div class="card">
 
@@ -153,14 +144,15 @@ text-align:center;
 <option value="">Memuat data...</option>
 </select>
 
-
 <label>Status</label>
 
-<select id="status">
+<select id="status" onchange="updateMode()">
+
 <option value="MASUK">Datang</option>
 <option value="PULANG">Pulang</option>
 <option value="IJIN">Ijin</option>
 <option value="SAKIT">Sakit</option>
+
 </select>
 
 <div id="gps">Menunggu GPS...</div>
@@ -172,19 +164,20 @@ text-align:center;
 <canvas id="canvas" style="display:none;"></canvas>
 
 <button onclick="submitAbsen()">
+
 Submit Absensi
+
 </button>
 
 <div id="message"></div>
 
 </div>
 
-
 <script>
 
 const BASE_URL="https://absensi-backend-sc11.onrender.com"
 
-/* POS JAGA */
+/* KOORDINAT POS */
 
 const POS_LAT=-6.266123
 const POS_LNG=106.652456
@@ -193,9 +186,33 @@ const MAX_RADIUS=100
 let stream=null
 let lokasi=null
 
+/* MODE UI */
+
+function updateMode(){
+
+const status=document.getElementById("status").value
+
+if(status==="IJIN" || status==="SAKIT"){
+
+stopCamera()
+
+document.getElementById("camera").style.display="none"
+
+}else{
+
+document.getElementById("camera").style.display="block"
+
+startCamera()
+
+}
+
+}
+
 /* CAMERA */
 
 async function startCamera(){
+
+if(stream) return
 
 try{
 
@@ -213,7 +230,19 @@ document.getElementById("message").innerText="Kamera tidak tersedia"
 
 }
 
-/* FOTO + WATERMARK */
+function stopCamera(){
+
+if(stream){
+
+stream.getTracks().forEach(track=>track.stop())
+
+stream=null
+
+}
+
+}
+
+/* FOTO */
 
 function capturePhoto(){
 
@@ -318,6 +347,7 @@ async function loadPetugas(){
 try{
 
 const res=await fetch(BASE_URL+"/petugas")
+
 const data=await res.json()
 
 const select=document.getElementById("nama")
@@ -355,7 +385,7 @@ localStorage.setItem("absenOffline",JSON.stringify(list))
 
 }
 
-/* SYNC OFFLINE */
+/* SYNC */
 
 async function syncOffline(){
 
@@ -368,13 +398,17 @@ for(let data of list){
 try{
 
 await fetch(BASE_URL+"/absensi",{
+
 method:"POST",
 headers:{"Content-Type":"application/json"},
 body:JSON.stringify(data)
+
 })
 
 }catch{
+
 return
+
 }
 
 }
@@ -406,6 +440,8 @@ return
 
 /* GEOFENCE */
 
+if(status==="MASUK" || status==="PULANG"){
+
 const jarak=haversine(
 lokasi.latitude,
 lokasi.longitude,
@@ -415,12 +451,22 @@ POS_LNG
 
 if(jarak>MAX_RADIUS){
 
-document.getElementById("message").innerText="Terlalu jauh dari pos jaga"
+document.getElementById("message").innerText=
+"Absen datang/pulang harus di pos jaga"
+
 return
 
 }
 
-const foto=capturePhoto()
+}
+
+let foto=null
+
+if(status==="MASUK" || status==="PULANG"){
+
+foto=capturePhoto()
+
+}
 
 const data={
 
@@ -465,8 +511,8 @@ document.getElementById("message").innerText="Offline. Data disimpan"
 /* INIT */
 
 loadPetugas()
-startCamera()
 startGPS()
+updateMode()
 
 window.addEventListener("online",syncOffline)
 
