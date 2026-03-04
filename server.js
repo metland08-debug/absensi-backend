@@ -1,11 +1,20 @@
 require('dotenv').config()
 const express = require('express')
 const cors = require('cors')
+const fs = require('fs')
+const path = require('path')
 const { Pool } = require('pg')
 
 const app = express()
 app.use(cors())
-app.use(express.json())
+app.use(express.json({ limit: "10mb" }))
+
+const uploadDir = path.join(__dirname, "uploads")
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir)
+}
+
+app.use("/uploads", express.static(uploadDir))
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -45,7 +54,7 @@ app.get('/petugas', async (req, res) => {
 app.get("/absensi", async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT a.id, p.nama, a.tanggal, a.jam, a.status
+      SELECT a.id, p.nama, a.tanggal, a.jam, a.status, a.latitude, a.longitude, a.foto
       FROM absensi a
       JOIN petugas p ON a.petugas_id = p.id
       ORDER BY a.tanggal DESC, a.jam DESC
@@ -57,13 +66,15 @@ app.get("/absensi", async (req, res) => {
 })
 
 app.post("/absensi", async (req, res) => {
-  const { petugas_id, status } = req.body
+
+  const { petugas_id, status, latitude, longitude, foto } = req.body
 
   if (!petugas_id || !status) {
     return res.status(400).json({ error: "Data tidak lengkap" })
   }
 
   try {
+
     const petugasData = await pool.query(
       `SELECT siklus_offset, is_backup FROM petugas WHERE id = $1`,
       [petugas_id]
@@ -79,6 +90,7 @@ app.post("/absensi", async (req, res) => {
     const jamSekarang = now.getHours() + now.getMinutes() / 60
 
     let tanggalFinal = new Date(now)
+
     if (jamSekarang < 8) {
       tanggalFinal.setDate(tanggalFinal.getDate() - 1)
     }
@@ -109,24 +121,46 @@ app.post("/absensi", async (req, res) => {
       })
     }
 
+    /* ===== Simpan Foto ===== */
+
+    let fotoPath = null
+
+    if (foto) {
+
+      const base64Data = foto.replace(/^data:image\/jpeg;base64,/, "")
+
+      const fileName = `absen_${petugas_id}_${Date.now()}.jpg`
+
+      const filePath = path.join(uploadDir, fileName)
+
+      fs.writeFileSync(filePath, base64Data, "base64")
+
+      fotoPath = `/uploads/${fileName}`
+    }
+
     const result = await pool.query(
-      `INSERT INTO absensi (petugas_id, tanggal, jam, status)
-       VALUES ($1, $2, $3, $4)
+      `INSERT INTO absensi 
+       (petugas_id, tanggal, jam, status, latitude, longitude, foto)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
        RETURNING *`,
-      [petugas_id, tanggal, jam, status]
+      [petugas_id, tanggal, jam, status, latitude, longitude, fotoPath]
     )
 
     res.status(201).json(result.rows[0])
 
   } catch (err) {
+
     console.error(err)
+
     res.status(500).json({ error: "Gagal menambah absensi" })
+
   }
 })
 
 /* ================= REKAP BULANAN 26–25 ================= */
 
 app.get("/rekap-bulanan", async (req, res) => {
+
   const { bulan, tahun } = req.query
 
   if (!bulan || !tahun) {
@@ -137,8 +171,6 @@ app.get("/rekap-bulanan", async (req, res) => {
   const tahunInt = parseInt(tahun)
 
   try {
-
-    /* ===== Hitung Periode 26–25 ===== */
 
     let startMonth = bulanInt - 1
     let startYear = tahunInt
@@ -157,6 +189,7 @@ app.get("/rekap-bulanan", async (req, res) => {
     const petugasResult = await pool.query(
       "SELECT id, nama, siklus_offset, is_backup FROM petugas WHERE aktif = true ORDER BY id"
     )
+
     const petugasList = petugasResult.rows
 
     const absensiResult = await pool.query(
@@ -184,11 +217,7 @@ app.get("/rekap-bulanan", async (req, res) => {
       let tanggal_sakit = []
       let tanggal_backup = []
 
-      for (
-        let d = new Date(startDate);
-        d <= endDate;
-        d.setDate(d.getDate() + 1)
-      ) {
+      for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate()+1)) {
 
         const tanggalStr = d.toISOString().split("T")[0]
 
@@ -227,6 +256,7 @@ app.get("/rekap-bulanan", async (req, res) => {
           alpha++
           tanggal_alpha.push(tanggalStr)
         }
+
       }
 
       hasil.push({
@@ -242,6 +272,7 @@ app.get("/rekap-bulanan", async (req, res) => {
         tanggal_sakit,
         tanggal_backup
       })
+
     }
 
     res.json({
@@ -250,9 +281,13 @@ app.get("/rekap-bulanan", async (req, res) => {
     })
 
   } catch (err) {
+
     console.error(err)
+
     res.status(500).json({ error: "Gagal membuat rekap bulanan" })
+
   }
+
 })
 
 app.listen(process.env.PORT || 3000, () => {
