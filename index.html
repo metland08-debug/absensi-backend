@@ -2,6 +2,7 @@
 <html lang="id">
 
 <head>
+
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
@@ -84,6 +85,21 @@ border-radius:8px;
 background:black;
 }
 
+#preview{
+width:100%;
+margin-top:10px;
+border-radius:8px;
+display:none;
+}
+
+/* GPS */
+
+#gps{
+font-size:12px;
+margin-top:5px;
+color:#555;
+}
+
 /* SPLASH */
 
 #splash{
@@ -133,7 +149,6 @@ opacity:1;
 
 </div>
 
-
 <div class="card">
 
 <h2>Absensi Linmas</h2>
@@ -144,7 +159,6 @@ opacity:1;
 <option value="">Memuat data...</option>
 </select>
 
-
 <label>Status</label>
 
 <select id="status">
@@ -154,11 +168,13 @@ opacity:1;
 <option value="SAKIT">Sakit</option>
 </select>
 
+<div id="gps">Menunggu GPS...</div>
 
 <video id="camera" autoplay playsinline></video>
 
-<canvas id="canvas" style="display:none;"></canvas>
+<img id="preview">
 
+<canvas id="canvas" style="display:none;"></canvas>
 
 <button onclick="submitAbsen()">
 Submit Absensi
@@ -168,14 +184,12 @@ Submit Absensi
 
 </div>
 
-
-
 <script>
 
 const BASE_URL="https://absensi-backend-sc11.onrender.com"
 
 let stream=null
-
+let currentLocation=null
 
 /* START CAMERA */
 
@@ -184,7 +198,11 @@ async function startCamera(){
 try{
 
 stream=await navigator.mediaDevices.getUserMedia({
-video:{facingMode:"user"}
+video:{
+facingMode:"user",
+width:{ideal:640},
+height:{ideal:480}
+}
 })
 
 document.getElementById("camera").srcObject=stream
@@ -196,8 +214,6 @@ document.getElementById("message").innerText="Kamera tidak bisa diakses"
 }
 
 }
-
-
 
 /* CAPTURE PHOTO */
 
@@ -213,33 +229,42 @@ const ctx=canvas.getContext("2d")
 
 ctx.drawImage(video,0,0)
 
-return canvas.toDataURL("image/jpeg",0.8)
+const image=canvas.toDataURL("image/jpeg",0.7)
+
+document.getElementById("preview").src=image
+document.getElementById("preview").style.display="block"
+
+return image
 
 }
 
+/* GET GPS */
 
+function startGPS(){
 
-/* GET LOCATION */
+navigator.geolocation.watchPosition(
 
-function getLocation(){
+pos=>{
 
-return new Promise((resolve,reject)=>{
+currentLocation=pos.coords
 
-navigator.geolocation.getCurrentPosition(
+document.getElementById("gps").innerText=
+"GPS: "+pos.coords.latitude.toFixed(6)+
+", "+pos.coords.longitude.toFixed(6)
 
-pos=>resolve(pos.coords),
+},
 
-err=>reject(err),
+err=>{
+
+document.getElementById("gps").innerText="GPS tidak tersedia"
+
+},
 
 {enableHighAccuracy:true}
 
 )
 
-})
-
 }
-
-
 
 /* LOAD PETUGAS */
 
@@ -274,8 +299,6 @@ document.getElementById("message").innerText="Gagal memuat data petugas"
 
 }
 
-
-
 /* SUBMIT ABSEN */
 
 async function submitAbsen(){
@@ -286,20 +309,24 @@ const status=document.getElementById("status").value
 if(!petugas_id){
 
 document.getElementById("message").innerText="Pilih nama terlebih dahulu"
-
 return
 
 }
 
-document.getElementById("message").innerText="Mengambil lokasi..."
+if(!currentLocation){
 
-try{
+document.getElementById("message").innerText="GPS belum siap"
+return
 
-const lokasi=await getLocation()
+}
 
 document.getElementById("message").innerText="Mengambil foto..."
 
 const foto=capturePhoto()
+
+document.getElementById("message").innerText="Mengirim data..."
+
+try{
 
 const res=await fetch(BASE_URL+"/absensi",{
 
@@ -314,8 +341,8 @@ body:JSON.stringify({
 petugas_id:petugas_id,
 status:status,
 
-latitude:lokasi.latitude,
-longitude:lokasi.longitude,
+latitude:currentLocation.latitude,
+longitude:currentLocation.longitude,
 
 foto:foto
 
@@ -337,13 +364,11 @@ document.getElementById("message").innerText=result.error||"Gagal absen"
 
 }catch{
 
-document.getElementById("message").innerText="GPS atau kamera gagal"
+document.getElementById("message").innerText="Server tidak bisa dihubungi"
 
 }
 
 }
-
-
 
 /* SPLASH */
 
@@ -357,14 +382,11 @@ document.getElementById("splash").style.display="none"
 
 })
 
-
-
 /* INIT */
 
 loadPetugas()
 startCamera()
-
-
+startGPS()
 
 /* SERVICE WORKER */
 
