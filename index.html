@@ -1,4 +1,3 @@
-```html
 <!DOCTYPE html>
 <html lang="id">
 
@@ -9,17 +8,11 @@
 
 <title>Absensi Linmas</title>
 
-<link rel="manifest" href="/manifest.json">
-
-<meta name="theme-color" content="#1e3c72">
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-capable" content="yes">
-
 <style>
 
 body{
 margin:0;
-font-family:Arial,sans-serif;
+font-family:Arial;
 background:#f4f6f9;
 display:flex;
 justify-content:center;
@@ -39,12 +32,6 @@ box-shadow:0 5px 15px rgba(0,0,0,0.15);
 h2{
 text-align:center;
 color:#1e3c72;
-margin-bottom:20px;
-}
-
-label{
-font-weight:bold;
-font-size:14px;
 }
 
 select,button{
@@ -53,7 +40,6 @@ padding:12px;
 margin-top:10px;
 font-size:16px;
 border-radius:8px;
-border:1px solid #ccc;
 }
 
 button{
@@ -64,15 +50,22 @@ font-weight:bold;
 cursor:pointer;
 }
 
-button:hover{
-background:#16305c;
+button:disabled{
+background:#888;
+}
+
+#statusArea{
+display:grid;
+grid-template-columns:1fr 1fr;
+gap:10px;
+margin-top:10px;
 }
 
 video{
 width:100%;
 margin-top:10px;
 border-radius:8px;
-background:black;
+display:none;
 }
 
 #preview{
@@ -83,10 +76,9 @@ display:none;
 }
 
 #gps{
-margin-top:6px;
+margin-top:8px;
 font-size:13px;
 text-align:center;
-color:#555;
 }
 
 #message{
@@ -95,30 +87,16 @@ text-align:center;
 font-weight:bold;
 }
 
-#splash{
-position:fixed;
-top:0;
-left:0;
-width:100%;
-height:100%;
-background:linear-gradient(135deg,#1e3c72,#2a5298);
-display:flex;
-flex-direction:column;
-align-items:center;
-justify-content:center;
-color:white;
-z-index:9999;
+.loading{
+color:#e67e22;
 }
 
-#splash img{
-width:120px;
-margin-bottom:20px;
-animation:zoom 1.2s ease;
+.success{
+color:#27ae60;
 }
 
-@keyframes zoom{
-from{transform:scale(0.3);opacity:0}
-to{transform:scale(1);opacity:1}
+.error{
+color:#e74c3c;
 }
 
 </style>
@@ -127,41 +105,31 @@ to{transform:scale(1);opacity:1}
 
 <body>
 
-<div id="splash">
-
-<img src="/icon-512.png">
-<h2>Absensi Linmas</h2>
-
-</div>
-
 <div class="card">
 
 <h2>Absensi Linmas</h2>
 
-<label>Nama Petugas</label>
-
-<select id="nama">
-<option value="">Memuat data...</option>
+<select id="nama" onchange="pilihPetugas()">
+<option value="">Memuat petugas...</option>
 </select>
 
-<label>Status</label>
+<div id="jadwalArea"></div>
 
-<select id="status" onchange="updateStatusInfo()">
-<option value="MASUK">Datang</option>
-<option value="PULANG">Pulang</option>
-<option value="IJIN">Ijin</option>
-<option value="SAKIT">Sakit</option>
-</select>
+<div id="statusArea" style="display:none"></div>
 
-<div id="gps">Menunggu GPS...</div>
+<div id="gps"></div>
 
 <video id="camera" autoplay playsinline></video>
 
+<button id="btnFoto" onclick="ambilFoto()" style="display:none">
+Ambil Foto
+</button>
+
 <img id="preview">
 
-<canvas id="canvas" style="display:none;"></canvas>
-
-<button onclick="submitAbsen()">Submit Absensi</button>
+<button id="btnKirim" onclick="submitAbsensi()" style="display:none">
+Kirim Absensi
+</button>
 
 <div id="message"></div>
 
@@ -171,16 +139,183 @@ to{transform:scale(1);opacity:1}
 
 const BASE_URL="https://absensi-backend-sc11.onrender.com"
 
-/* POS JAGA */
-
 const POS_LAT=-6.266123
 const POS_LNG=106.652456
 const MAX_RADIUS=100
 
-let stream=null
-let lokasi=null
+const SHIFT_LABEL=[
+"SHIFT PAGI 1",
+"SHIFT PAGI 2",
+"SHIFT MALAM 1",
+"SHIFT MALAM 2",
+"LIBUR"
+]
 
-/* CAMERA */
+let petugasList=[]
+let petugasAktif=null
+let statusDipilih=null
+let lokasi=null
+let fotoBase64=null
+let stream=null
+
+/* ================= LOAD PETUGAS ================= */
+
+async function loadPetugas(){
+
+try{
+
+const res=await fetch(BASE_URL+"/petugas")
+petugasList=await res.json()
+
+const select=document.getElementById("nama")
+
+select.innerHTML='<option value="">-- Pilih Nama --</option>'
+
+petugasList.forEach(p=>{
+
+const opt=document.createElement("option")
+opt.value=p.id
+opt.textContent=p.nama
+select.appendChild(opt)
+
+})
+
+}catch{
+
+setMessage("Gagal memuat petugas","error")
+
+}
+
+}
+
+/* ================= SIKLUS ================= */
+
+function getSiklusIndexByDate(dateObj){
+
+const startDate=new Date("2026-01-26T00:00:00+07:00")
+
+const d=new Date(dateObj)
+d.setHours(0,0,0,0)
+
+const diffDays=Math.floor((d-startDate)/(1000*60*60*24))
+
+return ((diffDays%5)+5)%5
+
+}
+
+/* ================= PILIH PETUGAS ================= */
+
+function pilihPetugas(){
+
+const id=parseInt(document.getElementById("nama").value)
+
+petugasAktif=petugasList.find(p=>p.id===id)
+
+if(!petugasAktif) return
+
+const today=new Date()
+
+const globalIndex=getSiklusIndexByDate(today)
+
+const petugasIndex=
+(globalIndex+(petugasAktif.siklus_offset??0))%5
+
+document.getElementById("jadwalArea").innerHTML=
+"<b>Jadwal Hari Ini</b><br>"+SHIFT_LABEL[petugasIndex]
+
+renderStatusButtons(petugasIndex)
+
+}
+
+/* ================= STATUS BUTTON ================= */
+
+function renderStatusButtons(index){
+
+const area=document.getElementById("statusArea")
+
+area.innerHTML=""
+
+if(index===4){
+
+area.innerHTML+=`<button onclick="pilihStatus('MASUK')">MASUK</button>`
+area.innerHTML+=`<button onclick="pilihStatus('PULANG')">PULANG</button>`
+
+}else{
+
+area.innerHTML+=`<button onclick="pilihStatus('MASUK')">MASUK</button>`
+area.innerHTML+=`<button onclick="pilihStatus('PULANG')">PULANG</button>`
+area.innerHTML+=`<button onclick="pilihStatus('IZIN')">IZIN</button>`
+area.innerHTML+=`<button onclick="pilihStatus('SAKIT')">SAKIT</button>`
+
+}
+
+area.style.display="grid"
+
+}
+
+/* ================= PILIH STATUS ================= */
+
+function pilihStatus(status){
+
+statusDipilih=status
+
+if(status==="MASUK"||status==="PULANG"){
+
+startGPS()
+
+}else{
+
+startCamera()
+
+}
+
+}
+
+/* ================= GPS ================= */
+
+function startGPS(){
+
+setMessage("Mengambil lokasi...","loading")
+
+navigator.geolocation.getCurrentPosition(
+
+pos=>{
+
+lokasi=pos.coords
+
+const jarak=haversine(
+lokasi.latitude,
+lokasi.longitude,
+POS_LAT,
+POS_LNG
+)
+
+document.getElementById("gps").innerText=
+"Jarak dari pos "+Math.round(jarak)+" meter"
+
+if(jarak>MAX_RADIUS){
+
+setMessage("Anda harus berada di pos jaga","error")
+return
+}
+
+startCamera()
+
+},
+
+()=>{
+
+setMessage("GPS gagal","error")
+
+},
+
+{enableHighAccuracy:true,timeout:10000}
+
+)
+
+}
+
+/* ================= CAMERA ================= */
 
 async function startCamera(){
 
@@ -190,162 +325,122 @@ stream=await navigator.mediaDevices.getUserMedia({
 video:{facingMode:"user"}
 })
 
-document.getElementById("camera").srcObject=stream
+const video=document.getElementById("camera")
+
+video.srcObject=stream
+video.style.display="block"
+
+document.getElementById("btnFoto").style.display="block"
 
 }catch{
 
-document.getElementById("message").innerText="Kamera tidak tersedia"
+setMessage("Kamera tidak tersedia","error")
 
 }
 
 }
 
-/* FOTO */
+/* ================= FOTO ================= */
 
-function capturePhoto(){
+function ambilFoto(){
 
 const video=document.getElementById("camera")
-const canvas=document.getElementById("canvas")
 
-canvas.width=video.videoWidth
-canvas.height=video.videoHeight
+const canvas=document.createElement("canvas")
+
+canvas.width=640
+canvas.height=480
 
 const ctx=canvas.getContext("2d")
 
-ctx.drawImage(video,0,0)
-
-ctx.fillStyle="rgba(0,0,0,0.5)"
-ctx.fillRect(0,canvas.height-80,canvas.width,80)
-
-ctx.fillStyle="white"
-ctx.font="16px Arial"
+ctx.drawImage(video,0,0,640,480)
 
 const nama=document.getElementById("nama").selectedOptions[0].text
 const waktu=new Date().toLocaleString()
 
-ctx.fillText(nama,10,canvas.height-50)
-ctx.fillText(waktu,10,canvas.height-30)
+ctx.fillStyle="rgba(0,0,0,0.5)"
+ctx.fillRect(0,420,640,60)
 
-if(lokasi){
+ctx.fillStyle="white"
+ctx.font="14px Arial"
 
-ctx.fillText(
-lokasi.latitude.toFixed(5)+", "+lokasi.longitude.toFixed(5),
-10,canvas.height-10)
+ctx.fillText(nama,10,440)
+ctx.fillText(waktu,10,460)
 
-}
+fotoBase64=canvas.toDataURL("image/jpeg",0.6)
 
-const foto=canvas.toDataURL("image/jpeg",0.7)
-
-document.getElementById("preview").src=foto
+document.getElementById("preview").src=fotoBase64
 document.getElementById("preview").style.display="block"
 
-return foto
+document.getElementById("btnKirim").style.display="block"
+
+stopCamera()
 
 }
 
-/* GPS */
+/* ================= STOP CAMERA ================= */
 
-function startGPS(){
+function stopCamera(){
 
-navigator.geolocation.watchPosition(
+if(stream){
 
-pos=>{
-
-lokasi=pos.coords
-
-const status=document.getElementById("status").value
-
-const jarak=haversine(
-pos.coords.latitude,
-pos.coords.longitude,
-POS_LAT,
-POS_LNG
-)
-
-if(status==="MASUK" || status==="PULANG"){
-
-document.getElementById("gps").innerText=
-"Jarak dari pos: "+Math.round(jarak)+" meter"
-
-}else{
-
-document.getElementById("gps").innerText=
-"Lokasi bebas (ijin/sakit)"
+stream.getTracks().forEach(track=>track.stop())
 
 }
 
-},
-
-err=>{
-
-document.getElementById("gps").innerText="GPS tidak tersedia"
-
-},
-
-{
-enableHighAccuracy:true,
-maximumAge:0,
-timeout:10000
 }
 
-)
+/* ================= SUBMIT ================= */
 
+async function submitAbsensi(){
+
+document.getElementById("btnKirim").disabled=true
+
+setMessage("Mengirim absensi...","loading")
+
+const data={
+petugas_id:petugasAktif.id,
+status:statusDipilih,
+latitude:lokasi?lokasi.latitude:null,
+longitude:lokasi?lokasi.longitude:null,
+foto:fotoBase64
 }
-
-/* JARAK */
-
-function haversine(lat1,lon1,lat2,lon2){
-
-const R=6371e3
-const φ1=lat1*Math.PI/180
-const φ2=lat2*Math.PI/180
-
-const Δφ=(lat2-lat1)*Math.PI/180
-const Δλ=(lon2-lon1)*Math.PI/180
-
-const a=Math.sin(Δφ/2)**2+
-Math.cos(φ1)*Math.cos(φ2)*
-Math.sin(Δλ/2)**2
-
-const c=2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a))
-
-return R*c
-
-}
-
-/* LOAD PETUGAS */
-
-async function loadPetugas(){
 
 try{
 
-const res=await fetch(BASE_URL+"/petugas")
-const data=await res.json()
-
-const select=document.getElementById("nama")
-
-select.innerHTML='<option value="">-- Pilih Nama --</option>'
-
-data.forEach(p=>{
-
-const option=document.createElement("option")
-
-option.value=p.id
-option.textContent=p.nama
-
-select.appendChild(option)
-
+const res=await fetch(BASE_URL+"/absensi",{
+method:"POST",
+headers:{"Content-Type":"application/json"},
+body:JSON.stringify(data)
 })
+
+const result=await res.json()
+
+if(res.ok){
+
+setMessage("Absensi berhasil","success")
+
+resetUI()
+
+}else{
+
+setMessage(result.error,"error")
+
+}
 
 }catch{
 
-document.getElementById("message").innerText="Gagal memuat petugas"
+simpanOffline(data)
+
+setMessage("Offline. Data disimpan","error")
 
 }
 
+document.getElementById("btnKirim").disabled=false
+
 }
 
-/* OFFLINE STORAGE */
+/* ================= OFFLINE ================= */
 
 function simpanOffline(data){
 
@@ -356,8 +451,6 @@ list.push(data)
 localStorage.setItem("absenOffline",JSON.stringify(list))
 
 }
-
-/* SYNC */
 
 async function syncOffline(){
 
@@ -387,131 +480,58 @@ localStorage.removeItem("absenOffline")
 
 }
 
-/* STATUS INFO */
+/* ================= UTIL ================= */
 
-function updateStatusInfo(){
+function setMessage(text,type){
 
-const status=document.getElementById("status").value
+const el=document.getElementById("message")
 
-if(status==="IJIN" || status==="SAKIT"){
-
-document.getElementById("gps").innerText="Lokasi bebas (ijin/sakit)"
-
-}
+el.className=type
+el.innerText=text
 
 }
 
-/* SUBMIT */
+function resetUI(){
 
-async function submitAbsen(){
+fotoBase64=null
+lokasi=null
 
-const petugas_id=document.getElementById("nama").value
-const status=document.getElementById("status").value
-
-if(!petugas_id){
-
-document.getElementById("message").innerText="Pilih nama"
-return
+document.getElementById("preview").style.display="none"
+document.getElementById("camera").style.display="none"
+document.getElementById("btnFoto").style.display="none"
+document.getElementById("btnKirim").style.display="none"
 
 }
 
-if(!lokasi){
+/* ================= HAVERSINE ================= */
 
-document.getElementById("message").innerText="GPS belum siap"
-return
+function haversine(lat1,lon1,lat2,lon2){
 
-}
+const R=6371e3
 
-/* GEOFENCE */
+const φ1=lat1*Math.PI/180
+const φ2=lat2*Math.PI/180
 
-if(status==="MASUK" || status==="PULANG"){
+const Δφ=(lat2-lat1)*Math.PI/180
+const Δλ=(lon2-lon1)*Math.PI/180
 
-const jarak=haversine(
-lokasi.latitude,
-lokasi.longitude,
-POS_LAT,
-POS_LNG
-)
+const a=Math.sin(Δφ/2)**2+
+Math.cos(φ1)*Math.cos(φ2)*
+Math.sin(Δλ/2)**2
 
-if(jarak>MAX_RADIUS){
+const c=2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a))
 
-document.getElementById("message").innerText=
-"Absen datang/pulang harus di pos jaga"
-
-return
+return R*c
 
 }
 
-}
-
-const foto=capturePhoto()
-
-const data={
-petugas_id,
-status,
-latitude:lokasi.latitude,
-longitude:lokasi.longitude,
-foto
-}
-
-try{
-
-const res=await fetch(BASE_URL+"/absensi",{
-method:"POST",
-headers:{"Content-Type":"application/json"},
-body:JSON.stringify(data)
-})
-
-if(res.ok){
-
-document.getElementById("message").innerText="Absensi berhasil"
-
-}else{
-
-document.getElementById("message").innerText="Server menolak absensi"
-
-}
-
-}catch{
-
-simpanOffline(data)
-
-document.getElementById("message").innerText="Offline. Data disimpan"
-
-}
-
-}
-
-/* INIT */
+/* ================= INIT ================= */
 
 loadPetugas()
-startCamera()
-startGPS()
 
 window.addEventListener("online",syncOffline)
-
-/* SPLASH */
-
-window.onload=()=>{
-
-setTimeout(()=>{
-
-document.getElementById("splash").style.display="none"
-
-},1200)
-
-}
-
-/* SERVICE WORKER */
-
-if('serviceWorker' in navigator){
-
-navigator.serviceWorker.register('/service-worker.js')
-
-}
 
 </script>
 
 </body>
 </html>
-```
