@@ -87,17 +87,9 @@ text-align:center;
 font-weight:bold;
 }
 
-.loading{
-color:#e67e22;
-}
-
-.success{
-color:#27ae60;
-}
-
-.error{
-color:#e74c3c;
-}
+.loading{color:#e67e22}
+.success{color:#27ae60}
+.error{color:#e74c3c}
 
 </style>
 
@@ -172,18 +164,14 @@ const select=document.getElementById("nama")
 select.innerHTML='<option value="">-- Pilih Nama --</option>'
 
 petugasList.forEach(p=>{
-
 const opt=document.createElement("option")
 opt.value=p.id
 opt.textContent=p.nama
 select.appendChild(opt)
-
 })
 
 }catch{
-
 setMessage("Gagal memuat petugas","error")
-
 }
 
 }
@@ -207,11 +195,20 @@ return ((diffDays%5)+5)%5
 
 function pilihPetugas(){
 
-const id=parseInt(document.getElementById("nama").value)
+const id=document.getElementById("nama").value
 
-petugasAktif=petugasList.find(p=>p.id===id)
+petugasAktif=petugasList.find(p=>String(p.id)===String(id))
 
 if(!petugasAktif) return
+
+lokasi=null
+fotoBase64=null
+
+document.getElementById("gps").innerText=""
+document.getElementById("preview").style.display="none"
+document.getElementById("camera").style.display="none"
+document.getElementById("btnFoto").style.display="none"
+document.getElementById("btnKirim").style.display="none"
 
 const today=new Date()
 
@@ -259,29 +256,46 @@ function pilihStatus(status){
 
 statusDipilih=status
 
+document.getElementById("gps").innerText=""
+lokasi=null
+
 if(status==="MASUK"||status==="PULANG"){
-
 startGPS()
-
 }else{
-
 startCamera()
-
 }
 
 }
 
-/* ================= GPS ================= */
+/* ================= GPS STABILIZER ================= */
 
 function startGPS(){
 
 setMessage("Mengambil lokasi...","loading")
 
-navigator.geolocation.getCurrentPosition(
+let bestPos=null
+let attempts=0
+
+const watchId=navigator.geolocation.watchPosition(
 
 pos=>{
 
-lokasi=pos.coords
+attempts++
+
+if(!bestPos || pos.coords.accuracy < bestPos.coords.accuracy){
+bestPos=pos
+}
+
+if(attempts>=3){
+
+navigator.geolocation.clearWatch(watchId)
+
+lokasi=bestPos.coords
+
+if(lokasi.accuracy>50){
+setMessage("GPS belum cukup akurat, coba ulangi","error")
+return
+}
 
 const jarak=haversine(
 lokasi.latitude,
@@ -291,25 +305,28 @@ POS_LNG
 )
 
 document.getElementById("gps").innerText=
-"Jarak dari pos "+Math.round(jarak)+" meter"
+"Jarak dari pos "+Math.round(jarak)+" meter (±"+Math.round(lokasi.accuracy)+"m)"
 
 if(jarak>MAX_RADIUS){
-
-setMessage("Anda harus berada di pos jaga","error")
+setMessage("Anda tidak sedang berada di lokasi POS 9","error")
 return
 }
 
 startCamera()
 
+}
+
 },
 
 ()=>{
-
 setMessage("GPS gagal","error")
-
 },
 
-{enableHighAccuracy:true,timeout:10000}
+{
+enableHighAccuracy:true,
+maximumAge:0,
+timeout:15000
+}
 
 )
 
@@ -356,16 +373,29 @@ const ctx=canvas.getContext("2d")
 ctx.drawImage(video,0,0,640,480)
 
 const nama=document.getElementById("nama").selectedOptions[0].text
-const waktu=new Date().toLocaleString()
 
-ctx.fillStyle="rgba(0,0,0,0.5)"
-ctx.fillRect(0,420,640,60)
+const now=new Date()
+
+const waktu=
+now.getFullYear()+"-"+String(now.getMonth()+1).padStart(2,'0')+"-"+String(now.getDate()).padStart(2,'0')
++" "+
+String(now.getHours()).padStart(2,'0')+":"+
+String(now.getMinutes()).padStart(2,'0')+":"+
+String(now.getSeconds()).padStart(2,'0')
+
+const lat=lokasi?lokasi.latitude.toFixed(6):"-"
+const lng=lokasi?lokasi.longitude.toFixed(6):"-"
+
+ctx.fillStyle="rgba(0,0,0,0.55)"
+ctx.fillRect(0,380,640,100)
 
 ctx.fillStyle="white"
-ctx.font="14px Arial"
+ctx.font="15px Arial"
 
-ctx.fillText(nama,10,440)
-ctx.fillText(waktu,10,460)
+ctx.fillText(nama,10,405)
+ctx.fillText("STATUS : "+statusDipilih,10,425)
+ctx.fillText(waktu,10,445)
+ctx.fillText(lat+" , "+lng,10,465)
 
 fotoBase64=canvas.toDataURL("image/jpeg",0.6)
 
@@ -381,13 +411,9 @@ stopCamera()
 /* ================= STOP CAMERA ================= */
 
 function stopCamera(){
-
 if(stream){
-
 stream.getTracks().forEach(track=>track.stop())
-
 }
-
 }
 
 /* ================= SUBMIT ================= */
@@ -417,21 +443,15 @@ body:JSON.stringify(data)
 const result=await res.json()
 
 if(res.ok){
-
 setMessage("Absensi berhasil","success")
-
 resetUI()
-
 }else{
-
 setMessage(result.error,"error")
-
 }
 
 }catch{
 
 simpanOffline(data)
-
 setMessage("Offline. Data disimpan","error")
 
 }
@@ -469,9 +489,7 @@ body:JSON.stringify(data)
 })
 
 }catch{
-
 return
-
 }
 
 }
@@ -483,12 +501,9 @@ localStorage.removeItem("absenOffline")
 /* ================= UTIL ================= */
 
 function setMessage(text,type){
-
 const el=document.getElementById("message")
-
 el.className=type
 el.innerText=text
-
 }
 
 function resetUI(){
