@@ -1,175 +1,300 @@
 <!DOCTYPE html>
 <html lang="id">
+
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link rel="manifest" href="/manifest.json">
+
+<title>Absensi Linmas</title>
+
+<link rel="manifest" href="/manifest.json">
+
 <meta name="theme-color" content="#1e3c72">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>Absensi Linmas</title>
-
-<!-- PWA SUPPORT -->
-<link rel="manifest" href="/manifest.json">
-<meta name="theme-color" content="#1e3c72">
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
 
 <style>
-body {
-  font-family: Arial, sans-serif;
-  background: linear-gradient(135deg, #1e3c72, #2a5298);
-  display: flex;
-  justify-content: center;
-  padding: 20px;
-  margin: 0;
+
+body{
+  margin:0;
+  font-family:Arial,sans-serif;
+  background:#f4f6f9;
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  height:100vh;
 }
 
-.card {
-  background: white;
-  padding: 25px;
-  width: 100%;
-  max-width: 400px;
-  border-radius: 12px;
-  box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+/* CARD */
+
+.card{
+  background:white;
+  padding:25px;
+  width:100%;
+  max-width:400px;
+  border-radius:12px;
+  box-shadow:0 5px 15px rgba(0,0,0,0.15);
 }
 
-h2 {
-  text-align: center;
-  margin-bottom: 20px;
-  color: #1e3c72;
+h2{
+  text-align:center;
+  margin-bottom:20px;
+  color:#1e3c72;
 }
 
-label {
-  font-weight: bold;
-  font-size: 14px;
+select,button{
+  width:100%;
+  padding:12px;
+  margin-top:10px;
+  font-size:16px;
+  border-radius:8px;
+  border:1px solid #ccc;
 }
 
-select, button {
-  width: 100%;
-  padding: 12px;
-  margin-top: 8px;
-  margin-bottom: 15px;
-  font-size: 16px;
-  border-radius: 8px;
-  border: 1px solid #ccc;
+button{
+  background:#1e3c72;
+  color:white;
+  border:none;
+  font-weight:bold;
+  cursor:pointer;
 }
 
-button {
-  background: #1e3c72;
-  color: white;
-  border: none;
-  cursor: pointer;
-  font-weight: bold;
+button:hover{
+  background:#16305c;
 }
 
-button:hover {
-  background: #16305c;
+#message{
+  margin-top:10px;
+  text-align:center;
+  font-weight:bold;
 }
 
-#message {
-  text-align: center;
-  font-weight: bold;
-  margin-top: 10px;
+/* SPLASH SCREEN */
+
+#splash{
+  position:fixed;
+  top:0;
+  left:0;
+  width:100%;
+  height:100%;
+  background:linear-gradient(135deg,#1e3c72,#2a5298);
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  color:white;
+  z-index:9999;
 }
+
+#splash img{
+  width:130px;
+  margin-bottom:20px;
+  animation:zoom 1.2s ease;
+}
+
+#splash h2{
+  color:white;
+}
+
+@keyframes zoom{
+  from{
+    transform:scale(0.3);
+    opacity:0;
+  }
+  to{
+    transform:scale(1);
+    opacity:1;
+  }
+}
+
 </style>
+
 </head>
-<div id="splash">
-  <img src="icon-512.png">
-  <h2>Absensi Linmas</h2>
-</div>
+
 <body>
 
-<div class="card">
-  <h2>Absensi Linmas</h2>
 
-  <label>Nama Petugas</label>
-  <select id="nama">
-    <option value="">Memuat data...</option>
-  </select>
+<!-- SPLASH SCREEN -->
 
-  <label>Status</label>
-  <select id="status">
-    <option value="MASUK">Datang</option>
-    <option value="PULANG">Pulang</option>
-  </select>
+<div id="splash">
 
-  <button onclick="submitAbsen()">Submit</button>
+<img src="/icon-512.png">
 
-  <div id="message"></div>
+<h2>Absensi Linmas</h2>
+
 </div>
 
+
+<!-- FORM -->
+
+<div class="card">
+
+<h2>Absensi Linmas</h2>
+
+<label>Nama Petugas</label>
+
+<select id="nama">
+<option value="">Memuat data...</option>
+</select>
+
+
+<label>Status</label>
+
+<select id="status">
+<option value="MASUK">Datang</option>
+<option value="PULANG">Pulang</option>
+<option value="IJIN">Ijin</option>
+<option value="SAKIT">Sakit</option>
+</select>
+
+
+<button onclick="submitAbsen()">
+Submit Absensi
+</button>
+
+<div id="message"></div>
+
+</div>
+
+
+
 <script>
-const BASE_URL = "https://absensi-backend-sc11.onrender.com";
 
-async function loadPetugas() {
-  try {
-    const res = await fetch(BASE_URL + "/petugas");
-    const data = await res.json();
+const BASE_URL="https://absensi-backend-sc11.onrender.com"
 
-    const select = document.getElementById("nama");
-    select.innerHTML = '<option value="">-- Pilih Nama --</option>';
 
-    data.forEach(function(p) {
-      const option = document.createElement("option");
-      option.value = p.id;
-      option.textContent = p.nama;
-      select.appendChild(option);
-    });
+/* LOAD PETUGAS */
 
-  } catch (err) {
-    document.getElementById("message").innerText =
-      "Gagal memuat data petugas";
+async function loadPetugas(){
+
+  try{
+
+    const res=await fetch(BASE_URL+"/petugas")
+
+    const data=await res.json()
+
+    const select=document.getElementById("nama")
+
+    select.innerHTML='<option value="">-- Pilih Nama --</option>'
+
+    data.forEach(p=>{
+
+      const option=document.createElement("option")
+
+      option.value=p.id
+
+      option.textContent=p.nama
+
+      select.appendChild(option)
+
+    })
+
+  }catch{
+
+    document.getElementById("message").innerText="Gagal memuat data petugas"
+
   }
+
 }
 
-async function submitAbsen() {
-  const petugas_id = document.getElementById("nama").value;
-  const status = document.getElementById("status").value;
 
-  if (!petugas_id) {
-    document.getElementById("message").innerText =
-      "Pilih nama dulu";
-    return;
+
+/* SUBMIT ABSENSI */
+
+async function submitAbsen(){
+
+  const petugas_id=document.getElementById("nama").value
+
+  const status=document.getElementById("status").value
+
+
+  if(!petugas_id){
+
+    document.getElementById("message").innerText="Pilih nama terlebih dahulu"
+
+    return
+
   }
 
-  try {
-    const res = await fetch(BASE_URL + "/absensi", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ petugas_id: petugas_id, status: status })
-    });
 
-    const result = await res.json();
+  try{
 
-    if (res.ok) {
-      document.getElementById("message").innerText =
-        "Absen berhasil";
-    } else {
-      document.getElementById("message").innerText =
-        result.error || "Gagal absen";
+    const res=await fetch(BASE_URL+"/absensi",{
+
+      method:"POST",
+
+      headers:{
+
+        "Content-Type":"application/json"
+
+      },
+
+      body:JSON.stringify({
+
+        petugas_id:petugas_id,
+
+        status:status
+
+      })
+
+    })
+
+
+    const result=await res.json()
+
+
+    if(res.ok){
+
+      document.getElementById("message").innerText="Absensi berhasil"
+
+    }else{
+
+      document.getElementById("message").innerText=result.error||"Gagal absen"
+
     }
 
-  } catch (err) {
-    document.getElementById("message").innerText =
-      "Server tidak bisa dihubungi";
+  }catch{
+
+    document.getElementById("message").innerText="Server tidak bisa dihubungi"
+
   }
+
 }
 
-loadPetugas();
+
+/* HILANGKAN SPLASH */
+
+window.addEventListener("load",function(){
+
+  setTimeout(()=>{
+
+    document.getElementById("splash").style.display="none"
+
+  },1200)
+
+})
+
+
+/* LOAD DATA */
+
+loadPetugas()
+
 
 /* REGISTER SERVICE WORKER */
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', function() {
+
+if('serviceWorker' in navigator){
+
+  window.addEventListener('load',function(){
+
     navigator.serviceWorker.register('/service-worker.js')
-      .then(function() {
-        console.log('Service Worker Registered');
-      });
-  });
+
+  })
+
 }
+
 </script>
+
 
 </body>
 </html>
