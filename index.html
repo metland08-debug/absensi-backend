@@ -1,3 +1,4 @@
+```html
 <!DOCTYPE html>
 <html lang="id">
 
@@ -13,7 +14,6 @@
 <meta name="theme-color" content="#1e3c72">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 
 <style>
 
@@ -40,8 +40,8 @@ box-shadow:0 5px 15px rgba(0,0,0,0.15);
 
 h2{
 text-align:center;
-margin-bottom:20px;
 color:#1e3c72;
+margin-bottom:20px;
 }
 
 label{
@@ -92,14 +92,6 @@ border-radius:8px;
 display:none;
 }
 
-/* GPS */
-
-#gps{
-font-size:12px;
-margin-top:5px;
-color:#555;
-}
-
 /* SPLASH */
 
 #splash{
@@ -118,20 +110,21 @@ z-index:9999;
 }
 
 #splash img{
-width:130px;
+width:120px;
 margin-bottom:20px;
 animation:zoom 1.2s ease;
 }
 
 @keyframes zoom{
-from{
-transform:scale(0.3);
-opacity:0;
+from{transform:scale(0.3);opacity:0}
+to{transform:scale(1);opacity:1}
 }
-to{
-transform:scale(1);
-opacity:1;
-}
+
+#gps{
+font-size:13px;
+margin-top:5px;
+color:#555;
+text-align:center;
 }
 
 </style>
@@ -149,6 +142,7 @@ opacity:1;
 
 </div>
 
+
 <div class="card">
 
 <h2>Absensi Linmas</h2>
@@ -158,6 +152,7 @@ opacity:1;
 <select id="nama">
 <option value="">Memuat data...</option>
 </select>
+
 
 <label>Status</label>
 
@@ -184,38 +179,41 @@ Submit Absensi
 
 </div>
 
+
 <script>
 
 const BASE_URL="https://absensi-backend-sc11.onrender.com"
 
-let stream=null
-let currentLocation=null
+/* POS JAGA */
 
-/* START CAMERA */
+const POS_LAT=-6.266123
+const POS_LNG=106.652456
+const MAX_RADIUS=100
+
+let stream=null
+let lokasi=null
+
+/* CAMERA */
 
 async function startCamera(){
 
 try{
 
 stream=await navigator.mediaDevices.getUserMedia({
-video:{
-facingMode:"user",
-width:{ideal:640},
-height:{ideal:480}
-}
+video:{facingMode:"user"}
 })
 
 document.getElementById("camera").srcObject=stream
 
 }catch{
 
-document.getElementById("message").innerText="Kamera tidak bisa diakses"
+document.getElementById("message").innerText="Kamera tidak tersedia"
 
 }
 
 }
 
-/* CAPTURE PHOTO */
+/* FOTO + WATERMARK */
 
 function capturePhoto(){
 
@@ -229,16 +227,36 @@ const ctx=canvas.getContext("2d")
 
 ctx.drawImage(video,0,0)
 
-const image=canvas.toDataURL("image/jpeg",0.7)
+ctx.fillStyle="rgba(0,0,0,0.5)"
+ctx.fillRect(0,canvas.height-80,canvas.width,80)
 
-document.getElementById("preview").src=image
-document.getElementById("preview").style.display="block"
+ctx.fillStyle="white"
+ctx.font="16px Arial"
 
-return image
+const nama=document.getElementById("nama").selectedOptions[0].text
+const waktu=new Date().toLocaleString()
+
+ctx.fillText(nama,10,canvas.height-50)
+ctx.fillText(waktu,10,canvas.height-30)
+
+if(lokasi){
+
+ctx.fillText(
+lokasi.latitude.toFixed(5)+", "+lokasi.longitude.toFixed(5),
+10,canvas.height-10)
 
 }
 
-/* GET GPS */
+const foto=canvas.toDataURL("image/jpeg",0.7)
+
+document.getElementById("preview").src=foto
+document.getElementById("preview").style.display="block"
+
+return foto
+
+}
+
+/* GPS */
 
 function startGPS(){
 
@@ -246,11 +264,17 @@ navigator.geolocation.watchPosition(
 
 pos=>{
 
-currentLocation=pos.coords
+lokasi=pos.coords
+
+const jarak=haversine(
+pos.coords.latitude,
+pos.coords.longitude,
+POS_LAT,
+POS_LNG
+)
 
 document.getElementById("gps").innerText=
-"GPS: "+pos.coords.latitude.toFixed(6)+
-", "+pos.coords.longitude.toFixed(6)
+"Jarak dari pos: "+Math.round(jarak)+" meter"
 
 },
 
@@ -266,6 +290,27 @@ document.getElementById("gps").innerText="GPS tidak tersedia"
 
 }
 
+/* HITUNG JARAK */
+
+function haversine(lat1,lon1,lat2,lon2){
+
+const R=6371e3
+const φ1=lat1*Math.PI/180
+const φ2=lat2*Math.PI/180
+
+const Δφ=(lat2-lat1)*Math.PI/180
+const Δλ=(lon2-lon1)*Math.PI/180
+
+const a=Math.sin(Δφ/2)**2+
+Math.cos(φ1)*Math.cos(φ2)*
+Math.sin(Δλ/2)**2
+
+const c=2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a))
+
+return R*c
+
+}
+
 /* LOAD PETUGAS */
 
 async function loadPetugas(){
@@ -273,7 +318,6 @@ async function loadPetugas(){
 try{
 
 const res=await fetch(BASE_URL+"/petugas")
-
 const data=await res.json()
 
 const select=document.getElementById("nama")
@@ -293,13 +337,53 @@ select.appendChild(option)
 
 }catch{
 
-document.getElementById("message").innerText="Gagal memuat data petugas"
+document.getElementById("message").innerText="Gagal memuat petugas"
 
 }
 
 }
 
-/* SUBMIT ABSEN */
+/* OFFLINE STORAGE */
+
+function simpanOffline(data){
+
+let list=JSON.parse(localStorage.getItem("absenOffline")||"[]")
+
+list.push(data)
+
+localStorage.setItem("absenOffline",JSON.stringify(list))
+
+}
+
+/* SYNC OFFLINE */
+
+async function syncOffline(){
+
+let list=JSON.parse(localStorage.getItem("absenOffline")||"[]")
+
+if(list.length===0)return
+
+for(let data of list){
+
+try{
+
+await fetch(BASE_URL+"/absensi",{
+method:"POST",
+headers:{"Content-Type":"application/json"},
+body:JSON.stringify(data)
+})
+
+}catch{
+return
+}
+
+}
+
+localStorage.removeItem("absenOffline")
+
+}
+
+/* SUBMIT */
 
 async function submitAbsen(){
 
@@ -308,49 +392,55 @@ const status=document.getElementById("status").value
 
 if(!petugas_id){
 
-document.getElementById("message").innerText="Pilih nama terlebih dahulu"
+document.getElementById("message").innerText="Pilih nama"
 return
 
 }
 
-if(!currentLocation){
+if(!lokasi){
 
 document.getElementById("message").innerText="GPS belum siap"
 return
 
 }
 
-document.getElementById("message").innerText="Mengambil foto..."
+/* GEOFENCE */
+
+const jarak=haversine(
+lokasi.latitude,
+lokasi.longitude,
+POS_LAT,
+POS_LNG
+)
+
+if(jarak>MAX_RADIUS){
+
+document.getElementById("message").innerText="Terlalu jauh dari pos jaga"
+return
+
+}
 
 const foto=capturePhoto()
 
-document.getElementById("message").innerText="Mengirim data..."
+const data={
+
+petugas_id,
+status,
+latitude:lokasi.latitude,
+longitude:lokasi.longitude,
+foto
+
+}
 
 try{
 
 const res=await fetch(BASE_URL+"/absensi",{
 
 method:"POST",
-
-headers:{
-"Content-Type":"application/json"
-},
-
-body:JSON.stringify({
-
-petugas_id:petugas_id,
-status:status,
-
-latitude:currentLocation.latitude,
-longitude:currentLocation.longitude,
-
-foto:foto
+headers:{"Content-Type":"application/json"},
+body:JSON.stringify(data)
 
 })
-
-})
-
-const result=await res.json()
 
 if(res.ok){
 
@@ -358,29 +448,19 @@ document.getElementById("message").innerText="Absensi berhasil"
 
 }else{
 
-document.getElementById("message").innerText=result.error||"Gagal absen"
+document.getElementById("message").innerText="Server menolak absensi"
 
 }
 
 }catch{
 
-document.getElementById("message").innerText="Server tidak bisa dihubungi"
+simpanOffline(data)
+
+document.getElementById("message").innerText="Offline. Data disimpan"
 
 }
 
 }
-
-/* SPLASH */
-
-window.addEventListener("load",function(){
-
-setTimeout(()=>{
-
-document.getElementById("splash").style.display="none"
-
-},1200)
-
-})
 
 /* INIT */
 
@@ -388,15 +468,25 @@ loadPetugas()
 startCamera()
 startGPS()
 
+window.addEventListener("online",syncOffline)
+
+/* SPLASH */
+
+window.onload=()=>{
+
+setTimeout(()=>{
+
+document.getElementById("splash").style.display="none"
+
+},1200)
+
+}
+
 /* SERVICE WORKER */
 
 if('serviceWorker' in navigator){
 
-window.addEventListener('load',function(){
-
 navigator.serviceWorker.register('/service-worker.js')
-
-})
 
 }
 
@@ -404,3 +494,4 @@ navigator.serviceWorker.register('/service-worker.js')
 
 </body>
 </html>
+```
