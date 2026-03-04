@@ -17,95 +17,105 @@
 <style>
 
 body{
-  margin:0;
-  font-family:Arial,sans-serif;
-  background:#f4f6f9;
-  display:flex;
-  justify-content:center;
-  align-items:center;
-  height:100vh;
+margin:0;
+font-family:Arial,sans-serif;
+background:#f4f6f9;
+display:flex;
+justify-content:center;
+align-items:center;
+min-height:100vh;
 }
 
 /* CARD */
 
 .card{
-  background:white;
-  padding:25px;
-  width:100%;
-  max-width:400px;
-  border-radius:12px;
-  box-shadow:0 5px 15px rgba(0,0,0,0.15);
+background:white;
+padding:25px;
+width:100%;
+max-width:420px;
+border-radius:12px;
+box-shadow:0 5px 15px rgba(0,0,0,0.15);
 }
 
 h2{
-  text-align:center;
-  margin-bottom:20px;
-  color:#1e3c72;
+text-align:center;
+margin-bottom:20px;
+color:#1e3c72;
+}
+
+label{
+font-weight:bold;
+font-size:14px;
 }
 
 select,button{
-  width:100%;
-  padding:12px;
-  margin-top:10px;
-  font-size:16px;
-  border-radius:8px;
-  border:1px solid #ccc;
+width:100%;
+padding:12px;
+margin-top:10px;
+font-size:16px;
+border-radius:8px;
+border:1px solid #ccc;
 }
 
 button{
-  background:#1e3c72;
-  color:white;
-  border:none;
-  font-weight:bold;
-  cursor:pointer;
+background:#1e3c72;
+color:white;
+border:none;
+font-weight:bold;
+cursor:pointer;
 }
 
 button:hover{
-  background:#16305c;
+background:#16305c;
 }
 
 #message{
-  margin-top:10px;
-  text-align:center;
-  font-weight:bold;
+margin-top:10px;
+text-align:center;
+font-weight:bold;
 }
 
-/* SPLASH SCREEN */
+/* CAMERA */
+
+video{
+width:100%;
+margin-top:10px;
+border-radius:8px;
+background:black;
+}
+
+/* SPLASH */
 
 #splash{
-  position:fixed;
-  top:0;
-  left:0;
-  width:100%;
-  height:100%;
-  background:linear-gradient(135deg,#1e3c72,#2a5298);
-  display:flex;
-  flex-direction:column;
-  align-items:center;
-  justify-content:center;
-  color:white;
-  z-index:9999;
+position:fixed;
+top:0;
+left:0;
+width:100%;
+height:100%;
+background:linear-gradient(135deg,#1e3c72,#2a5298);
+display:flex;
+flex-direction:column;
+align-items:center;
+justify-content:center;
+color:white;
+z-index:9999;
 }
 
 #splash img{
-  width:130px;
-  margin-bottom:20px;
-  animation:zoom 1.2s ease;
-}
-
-#splash h2{
-  color:white;
+width:130px;
+margin-bottom:20px;
+animation:zoom 1.2s ease;
 }
 
 @keyframes zoom{
-  from{
-    transform:scale(0.3);
-    opacity:0;
-  }
-  to{
-    transform:scale(1);
-    opacity:1;
-  }
+from{
+transform:scale(0.3);
+opacity:0;
+}
+to{
+transform:scale(1);
+opacity:1;
+}
 }
 
 </style>
@@ -114,19 +124,15 @@ button:hover{
 
 <body>
 
-
-<!-- SPLASH SCREEN -->
+<!-- SPLASH -->
 
 <div id="splash">
 
 <img src="/icon-512.png">
-
 <h2>Absensi Linmas</h2>
 
 </div>
 
-
-<!-- FORM -->
 
 <div class="card">
 
@@ -149,6 +155,11 @@ button:hover{
 </select>
 
 
+<video id="camera" autoplay playsinline></video>
+
+<canvas id="canvas" style="display:none;"></canvas>
+
+
 <button onclick="submitAbsen()">
 Submit Absensi
 </button>
@@ -163,138 +174,211 @@ Submit Absensi
 
 const BASE_URL="https://absensi-backend-sc11.onrender.com"
 
+let stream=null
+
+
+/* START CAMERA */
+
+async function startCamera(){
+
+try{
+
+stream=await navigator.mediaDevices.getUserMedia({
+video:{facingMode:"user"}
+})
+
+document.getElementById("camera").srcObject=stream
+
+}catch{
+
+document.getElementById("message").innerText="Kamera tidak bisa diakses"
+
+}
+
+}
+
+
+
+/* CAPTURE PHOTO */
+
+function capturePhoto(){
+
+const video=document.getElementById("camera")
+const canvas=document.getElementById("canvas")
+
+canvas.width=video.videoWidth
+canvas.height=video.videoHeight
+
+const ctx=canvas.getContext("2d")
+
+ctx.drawImage(video,0,0)
+
+return canvas.toDataURL("image/jpeg",0.8)
+
+}
+
+
+
+/* GET LOCATION */
+
+function getLocation(){
+
+return new Promise((resolve,reject)=>{
+
+navigator.geolocation.getCurrentPosition(
+
+pos=>resolve(pos.coords),
+
+err=>reject(err),
+
+{enableHighAccuracy:true}
+
+)
+
+})
+
+}
+
+
 
 /* LOAD PETUGAS */
 
 async function loadPetugas(){
 
-  try{
+try{
 
-    const res=await fetch(BASE_URL+"/petugas")
+const res=await fetch(BASE_URL+"/petugas")
 
-    const data=await res.json()
+const data=await res.json()
 
-    const select=document.getElementById("nama")
+const select=document.getElementById("nama")
 
-    select.innerHTML='<option value="">-- Pilih Nama --</option>'
+select.innerHTML='<option value="">-- Pilih Nama --</option>'
 
-    data.forEach(p=>{
+data.forEach(p=>{
 
-      const option=document.createElement("option")
+const option=document.createElement("option")
 
-      option.value=p.id
+option.value=p.id
+option.textContent=p.nama
 
-      option.textContent=p.nama
+select.appendChild(option)
 
-      select.appendChild(option)
+})
 
-    })
+}catch{
 
-  }catch{
+document.getElementById("message").innerText="Gagal memuat data petugas"
 
-    document.getElementById("message").innerText="Gagal memuat data petugas"
-
-  }
+}
 
 }
 
 
 
-/* SUBMIT ABSENSI */
+/* SUBMIT ABSEN */
 
 async function submitAbsen(){
 
-  const petugas_id=document.getElementById("nama").value
+const petugas_id=document.getElementById("nama").value
+const status=document.getElementById("status").value
 
-  const status=document.getElementById("status").value
+if(!petugas_id){
 
+document.getElementById("message").innerText="Pilih nama terlebih dahulu"
 
-  if(!petugas_id){
+return
 
-    document.getElementById("message").innerText="Pilih nama terlebih dahulu"
+}
 
-    return
+document.getElementById("message").innerText="Mengambil lokasi..."
 
-  }
+try{
 
+const lokasi=await getLocation()
 
-  try{
+document.getElementById("message").innerText="Mengambil foto..."
 
-    const res=await fetch(BASE_URL+"/absensi",{
+const foto=capturePhoto()
 
-      method:"POST",
+const res=await fetch(BASE_URL+"/absensi",{
 
-      headers:{
+method:"POST",
 
-        "Content-Type":"application/json"
+headers:{
+"Content-Type":"application/json"
+},
 
-      },
+body:JSON.stringify({
 
-      body:JSON.stringify({
+petugas_id:petugas_id,
+status:status,
 
-        petugas_id:petugas_id,
+latitude:lokasi.latitude,
+longitude:lokasi.longitude,
 
-        status:status
+foto:foto
 
-      })
+})
 
-    })
+})
 
+const result=await res.json()
 
-    const result=await res.json()
+if(res.ok){
 
+document.getElementById("message").innerText="Absensi berhasil"
 
-    if(res.ok){
+}else{
 
-      document.getElementById("message").innerText="Absensi berhasil"
+document.getElementById("message").innerText=result.error||"Gagal absen"
 
-    }else{
+}
 
-      document.getElementById("message").innerText=result.error||"Gagal absen"
+}catch{
 
-    }
+document.getElementById("message").innerText="GPS atau kamera gagal"
 
-  }catch{
-
-    document.getElementById("message").innerText="Server tidak bisa dihubungi"
-
-  }
+}
 
 }
 
 
-/* HILANGKAN SPLASH */
+
+/* SPLASH */
 
 window.addEventListener("load",function(){
 
-  setTimeout(()=>{
+setTimeout(()=>{
 
-    document.getElementById("splash").style.display="none"
+document.getElementById("splash").style.display="none"
 
-  },1200)
+},1200)
 
 })
 
 
-/* LOAD DATA */
+
+/* INIT */
 
 loadPetugas()
+startCamera()
 
 
-/* REGISTER SERVICE WORKER */
+
+/* SERVICE WORKER */
 
 if('serviceWorker' in navigator){
 
-  window.addEventListener('load',function(){
+window.addEventListener('load',function(){
 
-    navigator.serviceWorker.register('/service-worker.js')
+navigator.serviceWorker.register('/service-worker.js')
 
-  })
+})
 
 }
 
 </script>
-
 
 </body>
 </html>
